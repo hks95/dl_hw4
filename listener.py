@@ -18,11 +18,11 @@ import pdb
 
 class listenerModel(nn.Module):
 
-    def __init__(self, input_size, hidden_size, embed_drop=0, lock_dropi=0, lock_droph=0, lock_dropo=0):
+    def __init__(self, input_size, hidden_size, output_size, embed_drop=0, lock_dropi=0, lock_droph=0, lock_dropo=0):
         super(listenerModel, self).__init__()
-        self.input_size = 40
-        self.hidden_size = 256
-        # self.output_size = 47
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.output_size = output_size
         self.nlayers = 3
 
         self.embed_drop = embed_drop
@@ -32,24 +32,22 @@ class listenerModel(nn.Module):
 
 
         self.rnns = nn.ModuleList(
-            [nn.LSTM(input_size=40, hidden_size=256, num_layers=1, batch_first=False, bidirectional=True),
-             nn.LSTM(input_size=1024, hidden_size=256, num_layers=1, batch_first=False, bidirectional=True),
-             nn.LSTM(input_size=1024, hidden_size=256, num_layers=1, batch_first=False, bidirectional=True)]
+            [nn.LSTM(input_size=input_size, hidden_size=hidden_size, num_layers=1, batch_first=False, bidirectional=True),
+             nn.LSTM(input_size=hidden_size*4, hidden_size=hidden_size, num_layers=1, batch_first=False, bidirectional=True),
+             nn.LSTM(input_size=hidden_size*4, hidden_size=hidden_size, num_layers=1, batch_first=False, bidirectional=True)]
         )
 
         # layer size *2 bcs bidirectional, again *2 because of pyramid
 
-        # self.scoring = nn.ModuleList([
-        #     nn.Linear(in_features=1024, out_features=512),
-        #     nn.Linear(in_features=512, out_features=256),
-        #     nn.Linear(in_features=256, out_features=128),
-        #     nn.Linear(in_features=128, out_features=47)])
+        self.projection_key = nn.Linear(in_features=hidden_size*4, out_features=output_size) #mebe 256 as per nihar's recit
+        self.projection_val = nn.Linear(in_features=hidden_size*4, out_features=output_size)
 
         # self.init_weights()
 
     def forward(self, seq_list, input_length):
 
         batch_size = seq_list.shape[1]
+        orig_input_length = input_length
         # pdb.set_trace()
 
         # if self.lock_dropi is not 0:
@@ -59,9 +57,10 @@ class listenerModel(nn.Module):
 
         # DO PACKING ONLY FOR LSTM
         ##############################################
-        packed_input = rnn.pack_padded_sequence(seq_list, input_length, batch_first=False)  # packed version
+        padded_input = seq_list
         hidden = None
         for i, rnn_i in enumerate(self.rnns):
+            packed_input = rnn.pack_padded_sequence(padded_input, input_length, batch_first=False)  # packed version
             output_packed, hidden = rnn_i(packed_input)  # N*L*H
             output_padded = rnn.pad_packed_sequence(output_packed, batch_first=False)
 
@@ -71,15 +70,15 @@ class listenerModel(nn.Module):
             output_padded_reshaped = output_padded_data.reshape(batch_size,output_padded_data.shape[0],output_padded_data.shape[2])
 
             n2 = output_padded_reshaped.shape[1]
+            n2_even = n2
             if n2 % 2 is not 0:
-                n2 = n2-1
+                n2_even = n2-1
             n3 = output_padded_reshaped.shape[2]
 
-            output_padded_reshaped = output_padded_reshaped[:,0:n2,:]
-            output_padded_reshaped = output_padded_reshaped.reshape(batch_size,int(n2/2),int(n3*2))
-            output_padded_reshaped = output_padded_reshaped.reshape(-1,batch_size,int(n3*2))
-            output_padded_length = output_padded_length/2
-            packed_input = rnn.pack_padded_sequence(output_padded_reshaped, output_padded_length, batch_first=False)
+            output_padded_reshaped_new = output_padded_reshaped[:,0:n2_even,:]
+            output_padded_reshaped_new2 = output_padded_reshaped_new.reshape(batch_size,int(n2_even/2),int(n3*2))
+            padded_input = output_padded_reshaped_new2.reshape(-1,batch_size,int(n3*2))
+            input_length = output_padded_length/2
 
             # if i != self.nlayers - 1:
             #     if self.lock_droph is not 0:
@@ -93,15 +92,19 @@ class listenerModel(nn.Module):
         #     output_padded = self.lock_dropout(output_padded, self.lock_dropo)
         ##############################################
 
-        listener_features = output_padded_reshaped
+        listener_features = padded_input.reshape(batch_size,padded_input.shape[0],padded_input.shape[2]) #speller prefers batch first
 
-        # for i, linear in enumerate(self.scoring):
-        #     scores = linear(scores)  # N*L*H
-        #     if i is not 3:
-                # print('l {}'.format(i))
-                # scores = self.drop(scores)
+        # see if i can make this parallel and faster
+        attention_key = self.projection_key(listener_features)
+        attention_val = self.projection_val(listener_features)
 
-        return listener_features  # return concatenated logits
+        # create attention mask based on the input lengths
+        attention_mask = np.zeros((batch_size,input_length[0]))
+        for i in range(batch_size):
+            attention_mask[i][:input_length[i]] = 1
+        attention_mask = torch.from_numpy(attention_mask).float()
+
+        return attention_key, attention_val, attention_mask
 
     def init_weights(self):
         for l in self.scoring:
