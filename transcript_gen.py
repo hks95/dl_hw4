@@ -1,5 +1,6 @@
 import numpy as np
 import os
+import pdb
 
 def get_transcript(labels):
     print('generating transcript')
@@ -14,7 +15,7 @@ def get_transcript(labels):
 
     for idx1,transcript_item in enumerate(labels):
         # temp_label_array = np.empty(transcript_item.shape[0],dtype=object)
-        temp_label_array = np.zeros(transcript_item.shape[0]+1)
+        temp_label_array = np.zeros(transcript_item.shape[0])
         for idx2,word in enumerate(transcript_item):
             word_string = word.decode("utf-8")
             # temp_label_array[idx2] = word_string
@@ -23,10 +24,11 @@ def get_transcript(labels):
                 label_dict[word_string] = len(label_dict)-1
 
             temp_label_array[idx2] = label_dict[word_string]
-        temp_label_array[idx2+1] = label_dict['end']
+        #print('label array {}'.format(temp_label_array))
+        #temp_label_array[idx2+1] = label_dict['end']
         label_list.append(temp_label_array)
 
     label_array = np.array(label_list)
 
-
+    #pdb.set_trace()
     return label_dict,label_array

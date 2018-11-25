@@ -60,7 +60,7 @@ def collate(seq_list):
     seq_order_labels = sorted(range(len(lens)), key=lens.__getitem__, reverse=True) #maintains list of indices in sorted order
     longest_seq_length = len(seq_list[seq_order_labels[0]][1])
     padded_targets = np.full((longest_seq_length+1,batch_size),1) #for eos
-    target_mask = np.full((longest_seq_length+1,batch_size),-1) #for ignore index
+    target_mask = np.full((longest_seq_length+1,batch_size),0) #for ignore index
 
     data = [seq_list[i][0] for i in seq_order]
     for i,x in enumerate(data):

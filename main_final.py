@@ -12,7 +12,7 @@ import time
 import pdb
 import os
 import numpy as np
-# from tensorboardX import SummaryWriter
+from tensorboardX import SummaryWriter
 import listener
 import speller
 
@@ -27,10 +27,10 @@ import data_loader_final as data_loader
 from data_loader_final import ctc_Dataset
 # import all.phoneme_list as phonemes
 
-# run_id = str(int(time.time()))
-# os.mkdir('./runs/%s' % run_id)
-# print("Saving models, predictions, and generated words to ./experiments/%s" % run_id)
-# writer = SummaryWriter('runs/%s' % run_id)
+run_id = str(int(time.time()))
+os.mkdir('./runs/%s' % run_id)
+print("Saving models, predictions, and generated words to ./experiments/%s" % run_id)
+writer = SummaryWriter('runs/%s' % run_id)
 
 # class CTCCriterion(CTCLoss):
 #     def forward(self, prediction, target):
@@ -141,18 +141,19 @@ def train(args, listener_model, speller_model, train_loader,optimizer, epoch,gpu
             data_lengths = data_lengths.cuda()
             target = target.cuda()
             target_lengths = target_lengths.cuda()
+            target_mask = target_mask.cuda()
         
         optimizer.zero_grad()
         attention_key, attention_val, attention_mask = listener_model(data,data_lengths) #comes out at float
-        pred = speller_model(target, target_mask, attention_key, attention_val, attention_mask) #batch*lenseq*vocab
+        batch_loss = speller_model(target, target_mask, attention_key, attention_val, attention_mask) #batch*lenseq*vocab
 
         target = torch.t(target) #batch size first
         target_mask = torch.t(target_mask)
 
         # ignore index part
-        target = target*target_mask
+        #target = target*target_mask
 
-        batch_loss = criterion(pred, target.flatten())
+        #batch_loss = criterion(pred, target.flatten())
         batch_loss.backward()
         # torch.nn.utils.clip_grad_norm_(model.parameters(), 0.20)
         optimizer.step()
@@ -160,8 +161,10 @@ def train(args, listener_model, speller_model, train_loader,optimizer, epoch,gpu
         #
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} \tbatch {} \tLoss: {:.6f}'.format(epoch,batch_idx,batch_loss.item()))
-            # niter = epoch*len(train_loader)+batch_idx
-            # writer.add_scalar('Train/ctcLoss', batch_loss.item(), niter)
+            niter = epoch*len(train_loader)+batch_idx
+            writer.add_scalar('Train/Loss', batch_loss.item(), niter)
+    print('---------------------------------')
+    print('Train Epoch: {} \tLoss: {:.6f}'.format(epoch,epoch_loss/len(train_loader)))
 
 def save_checkpoint(state,is_best,model_name,dir):
     
@@ -216,7 +219,7 @@ def main():
 
     print('Starting data loading')
     # model.apply(init_randn)
-    training_set = ctc_Dataset('train', batch_size=args.batch_size)
+    training_set = ctc_Dataset('dev', batch_size=args.batch_size)
     params = {'batch_size': args.batch_size, 'num_workers': args.workers, 'shuffle': True,
               'collate_fn': data_loader.collate}  # if use_cuda else {}
     train_loader = data.DataLoader(training_set, **params)
@@ -239,7 +242,7 @@ def main():
         optimizer = optim.Adam(listener_model.parameters(),lr=args.lr)
 
         # dir = './models/%s' % run_id
-        for epoch in range(1,2):
+        for epoch in range(args.epochs):
             train(args, listener_model,speller_model, train_loader,optimizer, epoch,gpu)
             #model_name = 'model_best.pth.tar'
             #filepath = os.getcwd()+'/models/1541143617/best/' + model_name

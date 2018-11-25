@@ -67,8 +67,8 @@ class listenerModel(nn.Module):
             output_padded_data = output_padded[0]
             output_padded_length = output_padded[1]
 
-            output_padded_reshaped = output_padded_data.reshape(batch_size,output_padded_data.shape[0],output_padded_data.shape[2])
-
+            #output_padded_reshaped = output_padded_data.reshape(batch_size,output_padded_data.shape[0],output_padded_data.shape[2])
+            output_padded_reshaped = output_padded_data.permute(1,0,2)
             n2 = output_padded_reshaped.shape[1]
             n2_even = n2
             if n2 % 2 is not 0:
@@ -77,9 +77,9 @@ class listenerModel(nn.Module):
 
             output_padded_reshaped_new = output_padded_reshaped[:,0:n2_even,:]
             output_padded_reshaped_new2 = output_padded_reshaped_new.reshape(batch_size,int(n2_even/2),int(n3*2))
-            padded_input = output_padded_reshaped_new2.reshape(-1,batch_size,int(n3*2))
+            #padded_input = output_padded_reshaped_new2.reshape(-1,batch_size,int(n3*2))
             input_length = output_padded_length/2
-
+            padded_input = output_padded_reshaped_new2.permute(1,0,2)
             # if i != self.nlayers - 1:
             #     if self.lock_droph is not 0:
             #         output_packed = self.lock_dropout(output_packed, self.lock_droph)
@@ -92,8 +92,8 @@ class listenerModel(nn.Module):
         #     output_padded = self.lock_dropout(output_padded, self.lock_dropo)
         ##############################################
 
-        listener_features = padded_input.reshape(batch_size,padded_input.shape[0],padded_input.shape[2]) #speller prefers batch first
-
+        #listener_features = padded_input.reshape(batch_size,padded_input.shape[0],padded_input.shape[2]) #speller prefers batch first
+        listener_features = padded_input.permute(1,0,2)
         # see if i can make this parallel and faster
         attention_key = self.projection_key(listener_features)
         attention_val = self.projection_val(listener_features)
@@ -102,7 +102,7 @@ class listenerModel(nn.Module):
         attention_mask = np.zeros((batch_size,input_length[0]))
         for i in range(batch_size):
             attention_mask[i][:input_length[i]] = 1
-        attention_mask = torch.from_numpy(attention_mask).float()
+        attention_mask = torch.from_numpy(attention_mask).float().cuda()
 
         return attention_key, attention_val, attention_mask
 

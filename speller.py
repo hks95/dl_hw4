@@ -36,7 +36,7 @@ class SpellerModel(nn.Module):
         self.projection2 = nn.Linear(self.hidden_size,self.vocab_size)
 
         self.softmax = nn.Softmax(dim=2)
-        # self.criterion = nn.CrossEntropyLoss(size_average=False,ignore_index = -1)
+        self.criterion = nn.CrossEntropyLoss(reduction='none')
 
         # self.init_weights()
 
@@ -45,20 +45,22 @@ class SpellerModel(nn.Module):
         # target is seq * batch size
 
         # nn parameter
-        hx1 = torch.zeros(target.shape[1], self.hidden_size)
-        cx1 = torch.zeros(target.shape[1], self.hidden_size)
+        hx1 = torch.zeros(target.shape[1], self.hidden_size).cuda()
+        cx1 = torch.zeros(target.shape[1], self.hidden_size).cuda()
 
-        hx2 = torch.zeros(target.shape[1], self.hidden_size)
-        cx2 = torch.zeros(target.shape[1], self.hidden_size)
+        hx2 = torch.zeros(target.shape[1], self.hidden_size).cuda()
+        cx2 = torch.zeros(target.shape[1], self.hidden_size).cuda()
 
-        hx3 = torch.zeros(target.shape[1], self.hidden_size)
-        cx3 = torch.zeros(target.shape[1], self.hidden_size)
+        hx3 = torch.zeros(target.shape[1], self.hidden_size).cuda()
+        cx3 = torch.zeros(target.shape[1], self.hidden_size).cuda()
 
-        prev_context = torch.zeros(target.shape[1], self.context_size)
+        prev_context = torch.zeros(target.shape[1], self.context_size).cuda()
 
+        #pdb.set_trace()
         # inner product requires this change to satisfy dim
-        attention_key = attention_key.reshape(attention_key.shape[0],attention_key.shape[2],attention_key.shape[1])
+        #attention_key = attention_key.reshape(attention_key.shape[0],attention_key.shape[2],attention_key.shape[1])
 
+        attention_key = attention_key.permute(0,2,1)
         # output_array = torch.zeros(target.shape[0],target.shape[1],self.vocab_size) #first output is sos
         output_list = []
         # output_list.append(torch.zeros(target.shape[1],self.vocab_size))
@@ -76,7 +78,7 @@ class SpellerModel(nn.Module):
             #     y = torch.argmax(prev_output + eps, -1)  # y is batch size
             # else:
             if i is 0:
-                y = torch.zeros(target.shape[1]).long()
+                y = torch.zeros(target.shape[1]).long().cuda()
             else:
                 y = target[i-1] # first input is sos
 
@@ -117,16 +119,23 @@ class SpellerModel(nn.Module):
             hx3 = hx_3
             cx3 = cx_3
 
-            # target_ignore_idx = target[i] * target_mask[i]
-            # loss_i = self.criterion(output_i,target_ignore_idx)
-            # batch_loss.append(loss_i)
-
-        # batch_loss = torch.stack(batch_loss,dim=0)
+            #target_ignore_idx = target[i] * target_mask[i]
+            loss_i = self.criterion(output_i,target[i])
+            
+            batch_loss.append(loss_i)
+           
+            #print('target {}'.format(target[i]))
+            #print('input {}'.format(y))
+        
+        pdb.set_trace()
+        batch_loss = torch.stack(batch_loss,dim=0)
         # batch_loss = torch.mean(batch_loss,dim=1) #avg the batch loss
-        # batch_loss = batch_loss*target_mask
+        batch_loss = batch_loss*target_mask.float()
+        batch_loss_sumseq = torch.sum(batch_loss,dim=0)
+        batch_loss_mean = torch.mean(batch_loss_sumseq)
         # batch_loss = torch.sum(batch_loss)
 
-        output_array = torch.stack(output_list,dim=0)
-        output_array = output_array.reshape(output_array.shape[0],output_array.shape[1],output_array.shape[2])
-        output_array_2d = output_array.view(-1,output_array.shape[2]) #(batch*len seq)*vocab size for ce loss
-        return output_array_2d
+        #output_array = torch.stack(output_list,dim=0)
+        #output_array = output_array.reshape(output_array.shape[0],output_array.shape[1],output_array.shape[2])
+        #output_array_2d = output_array.view(-1,output_array.shape[2]) #(batch*len seq)*vocab size for ce loss
+        return batch_loss_mean
