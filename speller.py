@@ -36,12 +36,15 @@ class SpellerModel(nn.Module):
         self.projection2 = nn.Linear(self.hidden_size,self.vocab_size)
 
         self.softmax = nn.Softmax(dim=2)
+        # self.criterion = nn.CrossEntropyLoss(size_average=False,ignore_index = -1)
 
         # self.init_weights()
 
-    def forward(self, target, target_lengths, attention_key, attention_val, attention_mask):
+    def forward(self, target, target_mask, attention_key, attention_val, attention_mask):
 
         # target is seq * batch size
+
+        # nn parameter
         hx1 = torch.zeros(target.shape[1], self.hidden_size)
         cx1 = torch.zeros(target.shape[1], self.hidden_size)
 
@@ -58,19 +61,24 @@ class SpellerModel(nn.Module):
 
         # output_array = torch.zeros(target.shape[0],target.shape[1],self.vocab_size) #first output is sos
         output_list = []
-        output_list.append(torch.zeros(target.shape[1],self.vocab_size))
-        prev_output = output_list[0]
+        # output_list.append(torch.zeros(target.shape[1],self.vocab_size))
+        # prev_output = output_list[0]
+
+        batch_loss = []
         # looping for each time step in target sequence till eos
-        for i in range(target.shape[0]-1): # batch * 1 word
+        for i in range(target.shape[0]): # batch * 1 word
 
             ############ GUMBEL TRICK FOR TEACHER FORCING ##############3
-            prob = torch.randint(0, 100, (1,))
-            if prob>=90:
-                dist = Gumbel(0, 1)
-                eps = dist.sample(prev_output.size())
-                y = torch.argmax(prev_output + eps, -1)  # y is batch size
+            # prob = torch.randint(0, 100, (1,))
+            # if prob>=90:
+            #     dist = Gumbel(0, 1)
+            #     eps = dist.sample(prev_output.size())
+            #     y = torch.argmax(prev_output + eps, -1)  # y is batch size
+            # else:
+            if i is 0:
+                y = torch.zeros(target.shape[1]).long()
             else:
-                y = target[i]
+                y = target[i-1] # first input is sos
 
             ############ EMBEDDING PART ################
             embed = self.embedding(y) # batch * embed size
@@ -109,7 +117,16 @@ class SpellerModel(nn.Module):
             hx3 = hx_3
             cx3 = cx_3
 
+            # target_ignore_idx = target[i] * target_mask[i]
+            # loss_i = self.criterion(output_i,target_ignore_idx)
+            # batch_loss.append(loss_i)
+
+        # batch_loss = torch.stack(batch_loss,dim=0)
+        # batch_loss = torch.mean(batch_loss,dim=1) #avg the batch loss
+        # batch_loss = batch_loss*target_mask
+        # batch_loss = torch.sum(batch_loss)
+
         output_array = torch.stack(output_list,dim=0)
-        # output_array = output_array.reshape(output_array.shape[0],output_array.shape[1],output_array.shape[2])
+        output_array = output_array.reshape(output_array.shape[0],output_array.shape[1],output_array.shape[2])
         output_array_2d = output_array.view(-1,output_array.shape[2]) #(batch*len seq)*vocab size for ce loss
         return output_array_2d

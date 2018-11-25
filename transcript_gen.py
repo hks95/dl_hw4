@@ -8,21 +8,22 @@ def get_transcript(labels):
 
     label_dict = {}
     label_dict['start'] = 0
-    label_dict['end'] = 1
+    label_dict['end'] = 0
 
     label_list = []
 
     for idx1,transcript_item in enumerate(labels):
         # temp_label_array = np.empty(transcript_item.shape[0],dtype=object)
-        temp_label_array = np.zeros(transcript_item.shape[0])
+        temp_label_array = np.zeros(transcript_item.shape[0]+1)
         for idx2,word in enumerate(transcript_item):
             word_string = word.decode("utf-8")
             # temp_label_array[idx2] = word_string
-            if word not in label_dict:
-                word_string = word.decode("utf-8")
+            if word_string not in label_dict:
+                # word_string = word.decode("utf-8")
                 label_dict[word_string] = len(label_dict)-1
 
             temp_label_array[idx2] = label_dict[word_string]
+        temp_label_array[idx2+1] = label_dict['end']
         label_list.append(temp_label_array)
 
     label_array = np.array(label_list)

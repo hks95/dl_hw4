@@ -12,7 +12,7 @@ import time
 import pdb
 import os
 import numpy as np
-from tensorboardX import SummaryWriter
+# from tensorboardX import SummaryWriter
 import listener
 import speller
 
@@ -27,10 +27,10 @@ import data_loader_final as data_loader
 from data_loader_final import ctc_Dataset
 # import all.phoneme_list as phonemes
 
-run_id = str(int(time.time()))
-os.mkdir('./runs/%s' % run_id)
-print("Saving models, predictions, and generated words to ./experiments/%s" % run_id)
-writer = SummaryWriter('runs/%s' % run_id)
+# run_id = str(int(time.time()))
+# os.mkdir('./runs/%s' % run_id)
+# print("Saving models, predictions, and generated words to ./experiments/%s" % run_id)
+# writer = SummaryWriter('runs/%s' % run_id)
 
 # class CTCCriterion(CTCLoss):
 #     def forward(self, prediction, target):
@@ -144,9 +144,10 @@ def train(args, listener_model, speller_model, train_loader,optimizer, epoch,gpu
         
         optimizer.zero_grad()
         attention_key, attention_val, attention_mask = listener_model(data,data_lengths) #comes out at float
-        pred = speller_model(target, target_lengths, attention_key, attention_val, attention_mask) #batch*lenseq*vocab
+        pred = speller_model(target, target_mask, attention_key, attention_val, attention_mask) #batch*lenseq*vocab
 
         target = torch.t(target) #batch size first
+        target_mask = torch.t(target_mask)
 
         # ignore index part
         target = target*target_mask
@@ -159,8 +160,8 @@ def train(args, listener_model, speller_model, train_loader,optimizer, epoch,gpu
         #
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} \tbatch {} \tLoss: {:.6f}'.format(epoch,batch_idx,batch_loss.item()))
-            niter = epoch*len(train_loader)+batch_idx
-            writer.add_scalar('Train/ctcLoss', batch_loss.item(), niter)
+            # niter = epoch*len(train_loader)+batch_idx
+            # writer.add_scalar('Train/ctcLoss', batch_loss.item(), niter)
 
 def save_checkpoint(state,is_best,model_name,dir):
     
@@ -208,10 +209,10 @@ def main():
 
     best_eval = None
 
-    os.mkdir('./models/%s' % run_id)
-    os.mkdir('./models/%s/best' % run_id)
-    with open('./models/%s/commandline_args.txt' %run_id, 'w') as f:
-        f.write('\n'.join(sys.argv[1:]))
+    # os.mkdir('./models/%s' % run_id)
+    # os.mkdir('./models/%s/best' % run_id)
+    # with open('./models/%s/commandline_args.txt' %run_id, 'w') as f:
+    #     f.write('\n'.join(sys.argv[1:]))
 
     print('Starting data loading')
     # model.apply(init_randn)

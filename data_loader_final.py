@@ -59,8 +59,8 @@ def collate(seq_list):
     lens = [len(seq[1]) for seq in seq_list] #seq[0] in input
     seq_order_labels = sorted(range(len(lens)), key=lens.__getitem__, reverse=True) #maintains list of indices in sorted order
     longest_seq_length = len(seq_list[seq_order_labels[0]][1])
-    padded_targets = np.full((longest_seq_length+2,batch_size),1) #for sos and eos
-    target_mask = np.full((batch_size,longest_seq_length+2),-1) #for ignore index
+    padded_targets = np.full((longest_seq_length+1,batch_size),1) #for eos
+    target_mask = np.full((longest_seq_length+1,batch_size),-1) #for ignore index
 
     data = [seq_list[i][0] for i in seq_order]
     for i,x in enumerate(data):
@@ -68,12 +68,12 @@ def collate(seq_list):
 
     labels = [seq_list[i][1] for i in seq_order] #rearrange labels based on input decreasing order
     for i,x in enumerate(labels):
-        padded_targets[0,i] = 0
-        padded_targets[1:x.shape[0]+1,i] = x
-        padded_targets[x.shape[0]+1,i] = 1
-        target_mask[i,0] = 1
-        target_mask[i,1:x.shape[0] + 1] = 1
-        target_mask[i,x.shape[0] + 1] = 1
+        # padded_targets[0,i] = 0
+        padded_targets[0:x.shape[0],i] = x
+        padded_targets[x.shape[0],i] = 0
+        # target_mask[i,0] = 1
+        target_mask[0:x.shape[0],i] = 1
+        target_mask[x.shape[0],i] = 1
 
     # targets = []
     input_length = []
@@ -81,7 +81,7 @@ def collate(seq_list):
     for i in seq_order:
         # targets.append(seq_list[i][1]) #warp ctc requires 1 to n as labels
         input_length.append(len(seq_list[i][0]))
-        targets_length.append(len(seq_list[i][1])+2)
+        targets_length.append(len(seq_list[i][1])+1)
 
     # targets = np.array(targets)
     input_length = np.array(input_length)
