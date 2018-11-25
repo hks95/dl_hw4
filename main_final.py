@@ -12,7 +12,7 @@ import time
 import pdb
 import os
 import numpy as np
-# from tensorboardX import SummaryWriter
+from tensorboardX import SummaryWriter
 import listener
 import speller
 
@@ -27,10 +27,10 @@ import data_loader_final as data_loader
 from data_loader_final import ctc_Dataset
 # import all.phoneme_list as phonemes
 
-# run_id = str(int(time.time()))
-# os.mkdir('./runs/%s' % run_id)
-# print("Saving models, predictions, and generated words to ./experiments/%s" % run_id)
-# writer = SummaryWriter('runs/%s' % run_id)
+run_id = str(int(time.time()))
+os.mkdir('./runs/%s' % run_id)
+print("Saving models, predictions, and generated words to ./experiments/%s" % run_id)
+writer = SummaryWriter('runs/%s' % run_id)
 
 # class CTCCriterion(CTCLoss):
 #     def forward(self, prediction, target):
@@ -128,12 +128,13 @@ def train(args, listener_model, speller_model, train_loader,optimizer, epoch,gpu
     if gpu is True:
         criterion = criterion.cuda()
 
-    for batch_idx, (data, target,data_lengths,target_lengths) in enumerate(train_loader):
+    for batch_idx, (data, target,data_lengths,target_lengths,target_mask) in enumerate(train_loader):
 
         data = torch.from_numpy(data).float() # THIS HAS TO BE FLOAT BASED ON THE NETWORK REQUIREMENT
         data_lengths = torch.from_numpy(data_lengths).int() #THIS HAS TO BE LONG BASED ON THE NETWORK REQUIREMENT
         target = torch.from_numpy(target).long()
         target_lengths = torch.from_numpy(target_lengths).int()
+        target_mask = torch.from_numpy(target_mask).long()
 
         if gpu is True:
             data = data.cuda()
@@ -145,13 +146,12 @@ def train(args, listener_model, speller_model, train_loader,optimizer, epoch,gpu
         attention_key, attention_val, attention_mask = listener_model(data,data_lengths) #comes out at float
         pred = speller_model(target, target_lengths, attention_key, attention_val, attention_mask) #batch*lenseq*vocab
 
-        target_2 = torch.t(target) #batch size first
+        target = torch.t(target) #batch size first
 
         # ignore index part
-        for i in range(target_2.shape[0]):
-            target_2[i,target_lengths[i]:] = -1
+        target = target*target_mask
 
-        batch_loss = criterion(pred, target_2.flatten())
+        batch_loss = criterion(pred, target.flatten())
         batch_loss.backward()
         # torch.nn.utils.clip_grad_norm_(model.parameters(), 0.20)
         optimizer.step()
@@ -159,8 +159,8 @@ def train(args, listener_model, speller_model, train_loader,optimizer, epoch,gpu
         #
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} \tbatch {} \tLoss: {:.6f}'.format(epoch,batch_idx,batch_loss.item()))
-            # niter = epoch*len(train_loader)+batch_idx
-            # writer.add_scalar('Train/ctcLoss', batch_loss_norm.item(), niter)
+            niter = epoch*len(train_loader)+batch_idx
+            writer.add_scalar('Train/ctcLoss', batch_loss.item(), niter)
 
 def save_checkpoint(state,is_best,model_name,dir):
     
@@ -208,10 +208,10 @@ def main():
 
     best_eval = None
 
-    # os.mkdir('./models/%s' % run_id)
-    # os.mkdir('./models/%s/best' % run_id)
-    # with open('./models/%s/commandline_args.txt' %run_id, 'w') as f:
-    #     f.write('\n'.join(sys.argv[1:]))
+    os.mkdir('./models/%s' % run_id)
+    os.mkdir('./models/%s/best' % run_id)
+    with open('./models/%s/commandline_args.txt' %run_id, 'w') as f:
+        f.write('\n'.join(sys.argv[1:]))
 
     print('Starting data loading')
     # model.apply(init_randn)
@@ -234,8 +234,7 @@ def main():
         speller_model = speller_model.cuda()
 
     if args.eval is False:
-
-                        
+        
         optimizer = optim.Adam(listener_model.parameters(),lr=args.lr)
 
         # dir = './models/%s' % run_id
