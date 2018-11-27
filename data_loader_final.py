@@ -87,7 +87,7 @@ def collate(seq_list):
     input_length = np.array(input_length)
     targets_length = np.array(targets_length)
 
-    return padded_inputs,padded_targets,input_length,targets_length,target_mask
+    return padded_inputs,padded_targets,input_length,targets_length,target_mask,self.labels_dict
     # return padded_inputs,input_length
 
 def test_collate(seq_list):

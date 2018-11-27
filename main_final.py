@@ -15,35 +15,19 @@ import numpy as np
 from tensorboardX import SummaryWriter
 import listener
 import speller
+import Levenshtein
 
-# import ctc_model_final as ctc_model
 import csv
 import sys
-# import Levenshtein as L
-# from ctcdecode import CTCBeamDecoder
 from torch.utils.data import DataLoader, TensorDataset
-# from warpctc_pytorch import CTCLoss
 import data_loader_final as data_loader
 from data_loader_final import ctc_Dataset
-# import all.phoneme_list as phonemes
 
 run_id = str(int(time.time()))
 os.mkdir('./runs/%s' % run_id)
 print("Saving models, predictions, and generated words to ./experiments/%s" % run_id)
 writer = SummaryWriter('runs/%s' % run_id)
 
-# class CTCCriterion(CTCLoss):
-#     def forward(self, prediction, target):
-#         acts = prediction[0]
-#         act_lens = prediction[1].int()
-#         label_lens = prediction[2].int()
-#         labels = (target).view(-1).int()
-#         return super(CTCCriterion, self).forward(
-#                 acts=acts,
-#                 labels=labels.cpu(),
-#                 act_lens=act_lens.cpu(),
-#                 label_lens=label_lens.cpu()
-#         )
 #
 # def final_test(args, model,test_loader,gpu,i):
 #
@@ -73,62 +57,51 @@ writer = SummaryWriter('runs/%s' % run_id)
 #             pred = "".join(label_map[o] for o in output[0, 0, :out_seq_len[0, 0]])
 #             writer.writerow({'Id': batch_idx, 'Predicted': pred})
 #
-# def eval(args, model,dev_loader, epoch,gpu):
-#
-#     label_map = [' '] + phonemes.PHONEME_MAP
-#     decoder = CTCBeamDecoder(labels=label_map, blank_id=0, beam_width=100)
-#     epoch_ls = 0
-#     model.eval()
-#     for batch_idx,(data, target,data_lengths,target_lengths) in enumerate(dev_loader):
-#
-#         #pdb.set_trace()
-#         data = torch.from_numpy(data).float()
-#         data_lengths = torch.from_numpy(data_lengths).int()
-#
-#         if gpu is True:
-#             data = data.cuda()
-#             data_lengths = data_lengths.cuda()
-#
-#         target = np.concatenate(target)
-#         target = torch.from_numpy(target).int()
-#
-#         logits = model(data,data_lengths)
-#         logits = torch.transpose(logits, 0, 1)
-#         probs = F.softmax(logits, dim=2).data.cpu()
-#
-#         output, scores, timesteps, out_seq_len = decoder.decode(probs=probs, seq_lens=data_lengths)
-#
-#         pos = 0
-#         ls = 0.
-#         #pdb.set_trace()
-#         for i in range(output.size(0)):
-#             #pdb.set_trace()
-#             pred = "".join(label_map[o] for o in output[i, 0, :out_seq_len[i, 0]])
-#             true = "".join(label_map[l] for l in target[pos:pos + target_lengths[i]])
-#             pos += target_lengths[i]
-#             ls += L.distance(pred, true)
-#             print(" batch {} ls {}".format(batch_idx,ls))
-#         #pdb.set_trace()
-#         assert pos == target.size(0)
-#         epoch_ls += ls / output.size(0)
-#         # print(ls/output.size(0))
-#     epoch_ls = epoch_ls/len(dev_loader)
-#     print('Test Epoch: {} \t \tL dist: {:.6f}'.format(epoch,epoch_ls))
-#     niter = epoch*len(dev_loader)+batch_idx
-#     writer.add_scalar('Train/L distance', epoch_ls, niter)
-#
-#     return epoch_ls
+def eval(args, listener_model, speller_model, dev_loader,optimizer, epoch,gpu):
+    word_loss = 0
+    listener_model.eval()
+    speller_model.eval()
+    flag = 'eval'
+    count = 0
+    for batch_idx, (data, target,data_lengths,target_lengths,target_mask,target_dict) in enumerate(dev_loader):
 
+        data = torch.from_numpy(data).float()  # THIS HAS TO BE FLOAT BASED ON THE NETWORK REQUIREMENT
+        data_lengths = torch.from_numpy(data_lengths).int()  # THIS HAS TO BE LONG BASED ON THE NETWORK REQUIREMENT
+        target = torch.from_numpy(target).long()
+        target_lengths = torch.from_numpy(target_lengths).int()
+        target_mask = torch.from_numpy(target_mask).long()
+
+        if gpu is True:
+            data = data.cuda()
+            data_lengths = data_lengths.cuda()
+            target = target.cuda()
+            target_lengths = target_lengths.cuda()
+            target_mask = target_mask.cuda()
+
+        optimizer.zero_grad()
+        attention_key, attention_val, attention_mask = listener_model(data, data_lengths)  # comes out at float
+        pred = speller_model(target, target_mask, attention_key, attention_val, attention_mask, flag,target_dict)  # batch*lenseq*vocab
+
+        for i in range(target_lengths):
+            word_loss = Levenshtein.distance(target[i], pred[i])
+            perplexity = torch.exp(word_loss)
+            writer.add_scalar('Eval/Word Loss', word_loss, count)
+            writer.add_scalar('Eval/Perplexity', perplexity, count)
+            count += 1
+
+        print('Eval Epoch: {} \tLast Word Loss: {:.6f} \tPerplexity: {:.6f} '.format(epoch, word_loss,perplexity))
 
 def train(args, listener_model, speller_model, train_loader,optimizer, epoch,gpu):
-    # listener_model.train()
+    listener_model.train()
+    speller_model.train()
+    flag = 'train'
     epoch_loss = 0
     correct = 0
     criterion = nn.CrossEntropyLoss(ignore_index=-1)
     if gpu is True:
         criterion = criterion.cuda()
 
-    for batch_idx, (data, target,data_lengths,target_lengths,target_mask) in enumerate(train_loader):
+    for batch_idx, (data, target,data_lengths,target_lengths,target_mask,_) in enumerate(train_loader):
 
         data = torch.from_numpy(data).float() # THIS HAS TO BE FLOAT BASED ON THE NETWORK REQUIREMENT
         data_lengths = torch.from_numpy(data_lengths).int() #THIS HAS TO BE LONG BASED ON THE NETWORK REQUIREMENT
@@ -145,7 +118,7 @@ def train(args, listener_model, speller_model, train_loader,optimizer, epoch,gpu
         
         optimizer.zero_grad()
         attention_key, attention_val, attention_mask = listener_model(data,data_lengths) #comes out at float
-        batch_loss = speller_model(target, target_mask, attention_key, attention_val, attention_mask) #batch*lenseq*vocab
+        batch_loss = speller_model(target, target_mask, attention_key, attention_val, attention_mask, flag) #batch*lenseq*vocab
 
         target = torch.t(target) #batch size first
         target_mask = torch.t(target_mask)
@@ -163,8 +136,10 @@ def train(args, listener_model, speller_model, train_loader,optimizer, epoch,gpu
             print('Train Epoch: {} \tbatch {} \tLoss: {:.6f}'.format(epoch,batch_idx,batch_loss.item()))
             niter = epoch*len(train_loader)+batch_idx
             writer.add_scalar('Train/Loss', batch_loss.item(), niter)
+
     print('---------------------------------')
     print('Train Epoch: {} \tLoss: {:.6f}'.format(epoch,epoch_loss/len(train_loader)))
+    print('---------------------------------')
 
 def save_checkpoint(state,is_best,model_name,dir):
     
