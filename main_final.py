@@ -58,8 +58,8 @@ writer = SummaryWriter('runs/%s' % run_id)
 #             writer.writerow({'Id': batch_idx, 'Predicted': pred})
 #
 def eval(args, listener_model, speller_model, dev_loader, epoch,gpu):
-    word_loss = 0
-    total_word_loss = 0
+    batch_loss = 0
+    epoch_loss = 0
     listener_model.eval()
     speller_model.eval()
     flag = 'eval'
@@ -80,19 +80,25 @@ def eval(args, listener_model, speller_model, dev_loader, epoch,gpu):
             target_mask = target_mask.cuda()
 
         attention_key, attention_val, attention_mask = listener_model(data, data_lengths)  # comes out at float
-        pred = speller_model(target, target_mask, attention_key, attention_val, attention_mask, flag,target_dict)  # batch*lenseq*vocab
+        batch_loss = speller_model(target, target_mask, attention_key, attention_val, attention_mask, flag,target_dict)  # batch*lenseq*vocab
+        # pdb.set_trace()
+        # for i in range(target_lengths):
+        #     word_loss = Levenshtein.distance(target[i], pred[i])
+        #     perplexity = torch.exp(word_loss)
+        #     total_word_loss+=word_loss
+        #     writer.add_scalar('Eval/Word Loss', word_loss, count)
+        #     writer.add_scalar('Eval/Perplexity', perplexity, count)
+        count += 1
+        epoch_loss += batch_loss.item()
+        if batch_idx % 100 == 0:
+            print('Eval Epoch: {} \tbatch {} \tLoss: {:.6f}'.format(epoch,batch_idx,batch_loss.item()))
 
-        for i in range(target_lengths):
-            word_loss = Levenshtein.distance(target[i], pred[i])
-            perplexity = torch.exp(word_loss)
-            total_word_loss+=word_loss
-            writer.add_scalar('Eval/Word Loss', word_loss, count)
-            writer.add_scalar('Eval/Perplexity', perplexity, count)
-            count += 1
-
-    print('Eval Epoch: {} \t Total Word Loss: {:.6f} \tPerplexity: {:.6f} '.format(epoch, total_word_loss/count,perplexity))
-    avg_word_loss = total_word_loss/count
-    return avg_word_loss
+    # print('Eval Epoch: {} \t Total Word Loss: {:.6f} \tPerplexity: {:.6f} '.format(epoch, total_word_loss/count,perplexity))
+    epoch_loss = epoch_loss/len(dev_loader)
+    print('---------------------------------')
+    print('Eval Epoch: {} \tLoss: {:.6f}'.format(epoch,epoch_loss))
+    print('---------------------------------')
+    return epoch_loss
 
 def train(args, listener_model, speller_model, train_loader,optimizer_speller,optimizer_listener, epoch,gpu):
     listener_model.train()
@@ -191,10 +197,10 @@ def main():
 
     best_eval = None
 
-    # os.mkdir('./models/%s' % run_id)
-    # os.mkdir('./models/%s/best' % run_id)
-    # with open('./models/%s/commandline_args.txt' %run_id, 'w') as f:
-    #     f.write('\n'.join(sys.argv[1:]))
+    os.mkdir('./models/%s' % run_id)
+    os.mkdir('./models/%s/best' % run_id)
+    with open('./models/%s/commandline_args.txt' %run_id, 'w') as f:
+        f.write('\n'.join(sys.argv[1:]))
 
     print('Starting data loading')
     # model.apply(init_randn)
@@ -222,27 +228,27 @@ def main():
 
         # dir = './models/%s' % run_id
         for epoch in range(args.epochs):
-            train(args, listener_model,speller_model, train_loader,optimizer_speller,optimizer_listener, epoch,gpu)
+            # train(args, listener_model,speller_model, train_loader,optimizer_speller,optimizer_listener, epoch,gpu)
             #model_name = 'model_best.pth.tar'
             #filepath = os.getcwd()+'/models/1541143617/best/' + model_name
             #filepath = os.getcwd()+'/models/1541143617/best/' + model_name
             #state = torch.load(filepath)
             #model.load_state_dict(state['state_dict'])
             #print(model)
-            #avg_ldistance = eval(args, listener_model,speller_model, validation_loader,epoch,gpu)
+            eval_loss = eval(args, listener_model,speller_model, validation_loader,epoch,gpu)
             ## remember best acc and save checkpoint
-            # is_best = False
-            #if best_eval is None or best_eval>avg_ldistance:
-             #   is_best = True
-              #  best_eval = avg_ldistance
-            #model_name = 'model_%d.pth.tar' %(epoch)
-            #save_checkpoint({
-            #    'epoch': epoch + 1,
-            #    'speller_state_dict': speller_model.state_dict(),
-            #    'listener_state_dict': listener_model.state_dict(),
-            #    'best_acc': best_eval,
-            #    'optimizer' : optimizer.state_dict(),
-            #    }, is_best,model_name,dir)
+            is_best = False
+            if best_eval is None or best_eval>eval_loss:
+               is_best = True
+               best_eval = eval_loss
+            model_name = 'model_%d.pth.tar' %(epoch)
+            save_checkpoint({
+               'epoch': epoch + 1,
+               'speller_state_dict': speller_model.state_dict(),
+               'listener_state_dict': listener_model.state_dict(),
+               'best_acc': best_eval,
+               'optimizer' : optimizer.state_dict(),
+               }, is_best,model_name,dir)
     # else:
     #     print('Testing started')
     #     model_name = '/model_best.pth.tar'

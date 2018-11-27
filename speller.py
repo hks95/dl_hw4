@@ -71,16 +71,17 @@ class SpellerModel(nn.Module):
             for i in range(target.shape[0]): # batch * 1 word
 
                 ############ GUMBEL TRICK FOR TEACHER FORCING ##############3
-                # prob = torch.randint(0, 100, (1,))
-                # if prob>=90:
-                #     dist = Gumbel(0, 1)
-                #     eps = dist.sample(prev_output.size())
-                #     y = torch.argmax(prev_output + eps, -1)  # y is batch size
-                # else:
                 if i is 0:
                     y = torch.zeros(target.shape[1]).long().cuda()
                 else:
-                    y = target[i-1] # first input is sos
+                    prob = torch.randint(0, 100, (1,))
+                    if prob>=90:
+                        y = torch.argmax(prev_output).long()
+                        # dist = Gumbel(0, 1)
+                        # eps = dist.sample(prev_output.size())
+                        # y = torch.argmax(prev_output + eps, -1)  # y is batch size
+                    else:
+                        y = target[i-1] # first input is sos
 
                 ############ EMBEDDING PART ################
                 embed = self.embedding(y) # batch * embed size
@@ -121,7 +122,6 @@ class SpellerModel(nn.Module):
 
                 #target_ignore_idx = target[i] * target_mask[i]
                 loss_i = self.criterion(output_i,target[i])
-
                 batch_loss.append(loss_i)
 
                 #print('target {}'.format(target[i]))
@@ -148,9 +148,9 @@ class SpellerModel(nn.Module):
             for i in range(max_allowed_seq_length):  # 1 word
 
                 if i is 0:
-                    y = torch.zeros(target.shape[1]).long().cuda()
+                    y = torch.zeros(1).long().cuda()
                 else:
-                    y = prev_output  # first input is sos
+                    y = prev_output.long()  # first input is sos
 
                 ############ EMBEDDING PART ################
                 embed = self.embedding(y)  # 1 * embed size
@@ -177,17 +177,17 @@ class SpellerModel(nn.Module):
                 context = torch.bmm(attention_norm_3d, attention_val)  # 1*1*key_li
                 context_2d = torch.squeeze(context, dim=1)  # 1*key_li
                 output_i = self.projection2(hx_3)  # 1*vocab size
-                pdb.set_trace()
-                draw = torch.multinomial(output_i, 1)[0]
-                c = target_dict[draw]
-                output_list.append(c)
-
-                print('pred at {} is {}'.format(i,c))
-                if c is 0:
+                
+                output_softmax = torch.softmax(output_i.flatten(),dim=0)
+                pred = torch.multinomial(output_softmax, 1)
+                output_list.append(output_i)
+                # pdb.set_trace()
+                # print('pred at {} is {}'.format(target_dict[target[i]],target_dict[pred]))
+                if pred is 0:
                     break
 
                 prev_context = context_2d
-                prev_output = output_i
+                prev_output = pred
                 hx1 = hx_1
                 cx1 = cx_1
                 hx2 = hx_2
@@ -195,10 +195,19 @@ class SpellerModel(nn.Module):
                 hx3 = hx_3
                 cx3 = cx_3
 
+            # loss_i = self.criterion(output_i,target[i])
+            # batch_loss.append(loss_i)
             output_array = torch.stack(output_list,dim=0)
-            # output_array = output_array.reshape(output_array.shape[0],output_array.shape[1],output_array.shape[2])
-            # output_array_2d = output_array.view(-1,output_array.shape[2]) #(batch*len seq)*vocab size for ce loss
+            output_array = output_array[:target.shape[0],:,:]
+            output_array_2d = torch.squeeze(output_array,1)
+            batch_loss = self.criterion(output_array_2d,target.flatten())
 
-            result = output_array
+            # batch_loss = torch.stack(batch_loss,dim=0)
+            # batch_loss = torch.mean(batch_loss,dim=1) #avg the batch loss
+            # batch_loss = batch_loss*target_mask.float()
+            batch_loss_sumseq = torch.sum(batch_loss,dim=0)
+            # batch_loss_mean = torch.mean(batch_loss_sumseq)
+
+            result = batch_loss_sumseq
 
         return result
