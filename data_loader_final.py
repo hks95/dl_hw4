@@ -19,9 +19,11 @@ class ctc_Dataset(DataLoader):
         if flag is 'train':
             self.input, self.labels = loader.train
             self.labels_dict,self.labels = transcript_gen.get_transcript(self.labels)
+            print('total vocab {}'.format(len(self.labels_dict)))
         elif flag is 'dev':
             self.input, self.labels = loader.dev
             self.labels_dict,self.labels = transcript_gen.get_transcript(self.labels)
+            print('total vocab {}'.format(len(self.labels_dict)))
         else:
             self.input, _ = loader.test
 
@@ -30,14 +32,16 @@ class ctc_Dataset(DataLoader):
         self.vocab_size = len(self.labels_dict)
         print('total_samples {}'.format(self.num_utterances))
 
+
     def __getitem__(self, item):
         data = self.input[item]
         if self.flag is 'test':
             labels = 0
         else:
             labels = self.labels[item]
+            labels_dict = self.labels_dict
 
-        return data,labels
+        return data,labels,labels_dict
 
     def __len__(self):
         return self.num_utterances
@@ -47,7 +51,7 @@ class ctc_Dataset(DataLoader):
 def collate(seq_list):
     
     batch_size = len(seq_list)
-
+    #pdb.set_trace()
     # find decreasing order for inputs
     lens = [len(seq[0]) for seq in seq_list] #seq[0] in input
     seq_order = sorted(range(len(lens)), key=lens.__getitem__, reverse=True) #maintains list of indices in sorted order
@@ -86,8 +90,9 @@ def collate(seq_list):
     # targets = np.array(targets)
     input_length = np.array(input_length)
     targets_length = np.array(targets_length)
+    labels_dict = seq_list[0][2]
 
-    return padded_inputs,padded_targets,input_length,targets_length,target_mask,self.labels_dict
+    return padded_inputs,padded_targets,input_length,targets_length,target_mask,labels_dict
     # return padded_inputs,input_length
 
 def test_collate(seq_list):

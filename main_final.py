@@ -57,8 +57,9 @@ writer = SummaryWriter('runs/%s' % run_id)
 #             pred = "".join(label_map[o] for o in output[0, 0, :out_seq_len[0, 0]])
 #             writer.writerow({'Id': batch_idx, 'Predicted': pred})
 #
-def eval(args, listener_model, speller_model, dev_loader,optimizer, epoch,gpu):
+def eval(args, listener_model, speller_model, dev_loader, epoch,gpu):
     word_loss = 0
+    total_word_loss = 0
     listener_model.eval()
     speller_model.eval()
     flag = 'eval'
@@ -78,20 +79,22 @@ def eval(args, listener_model, speller_model, dev_loader,optimizer, epoch,gpu):
             target_lengths = target_lengths.cuda()
             target_mask = target_mask.cuda()
 
-        optimizer.zero_grad()
         attention_key, attention_val, attention_mask = listener_model(data, data_lengths)  # comes out at float
         pred = speller_model(target, target_mask, attention_key, attention_val, attention_mask, flag,target_dict)  # batch*lenseq*vocab
 
         for i in range(target_lengths):
             word_loss = Levenshtein.distance(target[i], pred[i])
             perplexity = torch.exp(word_loss)
+            total_word_loss+=word_loss
             writer.add_scalar('Eval/Word Loss', word_loss, count)
             writer.add_scalar('Eval/Perplexity', perplexity, count)
             count += 1
 
-        print('Eval Epoch: {} \tLast Word Loss: {:.6f} \tPerplexity: {:.6f} '.format(epoch, word_loss,perplexity))
+    print('Eval Epoch: {} \t Total Word Loss: {:.6f} \tPerplexity: {:.6f} '.format(epoch, total_word_loss/count,perplexity))
+    avg_word_loss = total_word_loss/count
+    return avg_word_loss
 
-def train(args, listener_model, speller_model, train_loader,optimizer, epoch,gpu):
+def train(args, listener_model, speller_model, train_loader,optimizer_speller,optimizer_listener, epoch,gpu):
     listener_model.train()
     speller_model.train()
     flag = 'train'
@@ -101,8 +104,7 @@ def train(args, listener_model, speller_model, train_loader,optimizer, epoch,gpu
     if gpu is True:
         criterion = criterion.cuda()
 
-    for batch_idx, (data, target,data_lengths,target_lengths,target_mask,_) in enumerate(train_loader):
-
+    for batch_idx, (data, target,data_lengths,target_lengths,target_mask,target_dict) in enumerate(train_loader):
         data = torch.from_numpy(data).float() # THIS HAS TO BE FLOAT BASED ON THE NETWORK REQUIREMENT
         data_lengths = torch.from_numpy(data_lengths).int() #THIS HAS TO BE LONG BASED ON THE NETWORK REQUIREMENT
         target = torch.from_numpy(target).long()
@@ -116,12 +118,13 @@ def train(args, listener_model, speller_model, train_loader,optimizer, epoch,gpu
             target_lengths = target_lengths.cuda()
             target_mask = target_mask.cuda()
         
-        optimizer.zero_grad()
+        optimizer_speller.zero_grad()
+        optimizer_listener.zero_grad()
         attention_key, attention_val, attention_mask = listener_model(data,data_lengths) #comes out at float
-        batch_loss = speller_model(target, target_mask, attention_key, attention_val, attention_mask, flag) #batch*lenseq*vocab
+        batch_loss = speller_model(target, target_mask, attention_key, attention_val, attention_mask, flag,target_dict) #batch*lenseq*vocab
 
-        target = torch.t(target) #batch size first
-        target_mask = torch.t(target_mask)
+        #target = torch.t(target) #batch size first
+        #target_mask = torch.t(target_mask)
 
         # ignore index part
         #target = target*target_mask
@@ -129,7 +132,8 @@ def train(args, listener_model, speller_model, train_loader,optimizer, epoch,gpu
         #batch_loss = criterion(pred, target.flatten())
         batch_loss.backward()
         # torch.nn.utils.clip_grad_norm_(model.parameters(), 0.20)
-        optimizer.step()
+        optimizer_speller.step()
+        optimizer_listener.step()
         epoch_loss += batch_loss.item()
         #
         if batch_idx % args.log_interval == 0:
@@ -154,7 +158,7 @@ def main():
     parser = argparse.ArgumentParser(description='PyTorch ctc speech')
     parser.add_argument('--batch_size', type=int, default=5, metavar='N',
                                             help='input batch size for training (default: 64)')
-    parser.add_argument('--test_batch_size', type=int, default=50, metavar='N',
+    parser.add_argument('--test_batch_size', type=int, default=1, metavar='N',
                                             help='input batch size for testing (default: 100)')
     parser.add_argument('--epochs', type=int, default=50, metavar='N',
                                             help='number of epochs to train (default: 10)')
@@ -194,7 +198,7 @@ def main():
 
     print('Starting data loading')
     # model.apply(init_randn)
-    training_set = ctc_Dataset('dev', batch_size=args.batch_size)
+    training_set = ctc_Dataset('train', batch_size=args.batch_size)
     params = {'batch_size': args.batch_size, 'num_workers': args.workers, 'shuffle': True,
               'collate_fn': data_loader.collate}  # if use_cuda else {}
     train_loader = data.DataLoader(training_set, **params)
@@ -213,31 +217,32 @@ def main():
         speller_model = speller_model.cuda()
 
     if args.eval is False:
-        
-        optimizer = optim.Adam(listener_model.parameters(),lr=args.lr)
+        optimizer_speller = optim.Adam(speller_model.parameters(),lr=args.lr)
+        optimizer_listener = optim.Adam(listener_model.parameters(),lr=args.lr)
 
         # dir = './models/%s' % run_id
         for epoch in range(args.epochs):
-            train(args, listener_model,speller_model, train_loader,optimizer, epoch,gpu)
+            train(args, listener_model,speller_model, train_loader,optimizer_speller,optimizer_listener, epoch,gpu)
             #model_name = 'model_best.pth.tar'
             #filepath = os.getcwd()+'/models/1541143617/best/' + model_name
             #filepath = os.getcwd()+'/models/1541143617/best/' + model_name
             #state = torch.load(filepath)
             #model.load_state_dict(state['state_dict'])
             #print(model)
-            # avg_ldistance = eval(args, model, validation_loader,epoch,gpu)
+            #avg_ldistance = eval(args, listener_model,speller_model, validation_loader,epoch,gpu)
             ## remember best acc and save checkpoint
             # is_best = False
-    #         if best_eval is None or best_eval>avg_ldistance:
-    #             is_best = True
-    #             best_eval = avg_ldistance
-    #         model_name = 'model_%d.pth.tar' %(epoch)
-    #         save_checkpoint({
-    #             'epoch': epoch + 1,
-    #             'state_dict': model.state_dict(),
-    #             'best_acc': best_eval,
-    #             'optimizer' : optimizer.state_dict(),
-    #             }, is_best,model_name,dir)
+            #if best_eval is None or best_eval>avg_ldistance:
+             #   is_best = True
+              #  best_eval = avg_ldistance
+            #model_name = 'model_%d.pth.tar' %(epoch)
+            #save_checkpoint({
+            #    'epoch': epoch + 1,
+            #    'speller_state_dict': speller_model.state_dict(),
+            #    'listener_state_dict': listener_model.state_dict(),
+            #    'best_acc': best_eval,
+            #    'optimizer' : optimizer.state_dict(),
+            #    }, is_best,model_name,dir)
     # else:
     #     print('Testing started')
     #     model_name = '/model_best.pth.tar'

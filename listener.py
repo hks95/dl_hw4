@@ -103,6 +103,7 @@ class listenerModel(nn.Module):
         for i in range(batch_size):
             attention_mask[i][:input_length[i]] = 1
         attention_mask = torch.from_numpy(attention_mask).float().cuda()
+        attention_mask.requires_grad = False
 
         return attention_key, attention_val, attention_mask
 

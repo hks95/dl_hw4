@@ -16,7 +16,6 @@ import torch.optim as optim
 import pdb
 from torch.distributions.gumbel import Gumbel
 
-
 class SpellerModel(nn.Module):
 
     def __init__(self,vocab_size,embed_size,hidden_size,listener_key_size):
@@ -56,7 +55,6 @@ class SpellerModel(nn.Module):
 
         prev_context = torch.zeros(target.shape[1], self.context_size).cuda()
 
-        #pdb.set_trace()
         # inner product requires this change to satisfy dim
         #attention_key = attention_key.reshape(attention_key.shape[0],attention_key.shape[2],attention_key.shape[1])
 
@@ -129,7 +127,7 @@ class SpellerModel(nn.Module):
                 #print('target {}'.format(target[i]))
                 #print('input {}'.format(y))
 
-            # pdb.set_trace()
+            #pdb.set_trace()
             batch_loss = torch.stack(batch_loss,dim=0)
             # batch_loss = torch.mean(batch_loss,dim=1) #avg the batch loss
             batch_loss = batch_loss*target_mask.float()
@@ -179,7 +177,7 @@ class SpellerModel(nn.Module):
                 context = torch.bmm(attention_norm_3d, attention_val)  # 1*1*key_li
                 context_2d = torch.squeeze(context, dim=1)  # 1*key_li
                 output_i = self.projection2(hx_3)  # 1*vocab size
-
+                pdb.set_trace()
                 draw = torch.multinomial(output_i, 1)[0]
                 c = target_dict[draw]
                 output_list.append(c)
