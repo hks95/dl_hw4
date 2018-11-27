@@ -22,6 +22,7 @@ import sys
 from torch.utils.data import DataLoader, TensorDataset
 import data_loader_final as data_loader
 from data_loader_final import ctc_Dataset
+import matplotlib.pyplot as plt
 
 run_id = str(int(time.time()))
 os.mkdir('./runs/%s' % run_id)
@@ -63,7 +64,7 @@ def eval(args, listener_model, speller_model, dev_loader, epoch,gpu):
     listener_model.eval()
     speller_model.eval()
     flag = 'eval'
-    count = 0
+    prob = torch.randint(0, len(dev_loader), (1,))
     for batch_idx, (data, target,data_lengths,target_lengths,target_mask,target_dict) in enumerate(dev_loader):
 
         data = torch.from_numpy(data).float()  # THIS HAS TO BE FLOAT BASED ON THE NETWORK REQUIREMENT
@@ -80,7 +81,19 @@ def eval(args, listener_model, speller_model, dev_loader, epoch,gpu):
             target_mask = target_mask.cuda()
 
         attention_key, attention_val, attention_mask = listener_model(data, data_lengths)  # comes out at float
-        batch_loss = speller_model(target, target_mask, attention_key, attention_val, attention_mask, flag,target_dict)  # batch*lenseq*vocab
+        batch_loss,attention_map = speller_model(target, target_mask, attention_key, attention_val, attention_mask, flag,target_dict)  # batch*lenseq*vocab
+        
+        ####################### SAVE ATTENTION MASK FOR RANDOM SAMPLE ################
+        if batch_idx is prob:
+            attention_heatmap = attention_map.cpu().detach().numpy()
+            # Create a new figure, plot into it, then close it so it never gets displayed
+            fig = plt.figure()
+            plt.imshow(attention_heatmap, cmap='hot', interpolation='nearest')
+            dir = './models/%s' % run_id
+            plt.savefig(dir + '/mask %d.png'%(epoch))
+            plt.close(fig)
+
+        ####################### LEVENSTEIN DIST #####################################
         # pdb.set_trace()
         # for i in range(target_lengths):
         #     word_loss = Levenshtein.distance(target[i], pred[i])
@@ -88,16 +101,19 @@ def eval(args, listener_model, speller_model, dev_loader, epoch,gpu):
         #     total_word_loss+=word_loss
         #     writer.add_scalar('Eval/Word Loss', word_loss, count)
         #     writer.add_scalar('Eval/Perplexity', perplexity, count)
-        count += 1
         epoch_loss += batch_loss.item()
         if batch_idx % 100 == 0:
             print('Eval Epoch: {} \tbatch {} \tLoss: {:.6f}'.format(epoch,batch_idx,batch_loss.item()))
+            niter = epoch*len(dev_loader)+batch_idx
+            writer.add_scalar('Eval/ Batch Loss', batch_loss.item(), niter)
 
     # print('Eval Epoch: {} \t Total Word Loss: {:.6f} \tPerplexity: {:.6f} '.format(epoch, total_word_loss/count,perplexity))
     epoch_loss = epoch_loss/len(dev_loader)
     print('---------------------------------')
     print('Eval Epoch: {} \tLoss: {:.6f}'.format(epoch,epoch_loss))
     print('---------------------------------')
+    writer.add_scalar('Eval/ Epoch Loss', epoch_loss, epoch)
+
     return epoch_loss
 
 def train(args, listener_model, speller_model, train_loader,optimizer_speller,optimizer_listener, epoch,gpu):
@@ -105,7 +121,7 @@ def train(args, listener_model, speller_model, train_loader,optimizer_speller,op
     speller_model.train()
     flag = 'train'
     epoch_loss = 0
-    correct = 0
+    count = 0
     criterion = nn.CrossEntropyLoss(ignore_index=-1)
     if gpu is True:
         criterion = criterion.cuda()
@@ -145,11 +161,12 @@ def train(args, listener_model, speller_model, train_loader,optimizer_speller,op
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} \tbatch {} \tLoss: {:.6f}'.format(epoch,batch_idx,batch_loss.item()))
             niter = epoch*len(train_loader)+batch_idx
-            writer.add_scalar('Train/Loss', batch_loss.item(), niter)
+            writer.add_scalar('Train/ Batch Loss', batch_loss.item(), niter)
 
     print('---------------------------------')
     print('Train Epoch: {} \tLoss: {:.6f}'.format(epoch,epoch_loss/len(train_loader)))
     print('---------------------------------')
+    writer.add_scalar('Train/Epoch Loss', epoch_loss/len(train_loader), epoch)
 
 def save_checkpoint(state,is_best,model_name,dir):
     
@@ -228,7 +245,7 @@ def main():
 
         # dir = './models/%s' % run_id
         for epoch in range(args.epochs):
-            # train(args, listener_model,speller_model, train_loader,optimizer_speller,optimizer_listener, epoch,gpu)
+            train(args, listener_model,speller_model, train_loader,optimizer_speller,optimizer_listener, epoch,gpu)
             #model_name = 'model_best.pth.tar'
             #filepath = os.getcwd()+'/models/1541143617/best/' + model_name
             #filepath = os.getcwd()+'/models/1541143617/best/' + model_name
@@ -247,7 +264,6 @@ def main():
                'speller_state_dict': speller_model.state_dict(),
                'listener_state_dict': listener_model.state_dict(),
                'best_acc': best_eval,
-               'optimizer' : optimizer.state_dict(),
                }, is_best,model_name,dir)
     # else:
     #     print('Testing started')

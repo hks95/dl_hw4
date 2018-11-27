@@ -76,7 +76,7 @@ class SpellerModel(nn.Module):
                 else:
                     prob = torch.randint(0, 100, (1,))
                     if prob>=90:
-                        y = torch.argmax(prev_output).long()
+                        y = prev_output
                         # dist = Gumbel(0, 1)
                         # eps = dist.sample(prev_output.size())
                         # y = torch.argmax(prev_output + eps, -1)  # y is batch size
@@ -111,7 +111,6 @@ class SpellerModel(nn.Module):
                 output_i = self.projection2(hx_3) #batch*vocab size
                 output_list.append(output_i)
                 prev_context = context_2d
-                prev_output = output_i
 
                 hx1 = hx_1
                 cx1 = cx_1
@@ -123,9 +122,9 @@ class SpellerModel(nn.Module):
                 #target_ignore_idx = target[i] * target_mask[i]
                 loss_i = self.criterion(output_i,target[i])
                 batch_loss.append(loss_i)
-
-                #print('target {}'.format(target[i]))
-                #print('input {}'.format(y))
+                output_softmax = torch.softmax(output_i,dim=1)
+                pred = torch.multinomial(output_softmax, 1).flatten() #to make it 1D
+                prev_output = pred
 
             #pdb.set_trace()
             batch_loss = torch.stack(batch_loss,dim=0)
@@ -145,6 +144,8 @@ class SpellerModel(nn.Module):
             ############ ALWAYS BATCH SIZE 1 ########################
             max_allowed_seq_length = 200
             prev_output = None
+            attention_map = []
+
             for i in range(max_allowed_seq_length):  # 1 word
 
                 if i is 0:
@@ -163,9 +164,10 @@ class SpellerModel(nn.Module):
 
                 # ############ ATTENTION PART ################
                 context_input = torch.unsqueeze(hx_3, dim=1)  # 1 * 1 * hidden_sp
-                context_input_proj = self.projection1(context_input)  # 1*1*key_li
+                context_input_proj = self.projection1(context_input)  # 1*1*key_listn
                 energy = torch.bmm(context_input_proj, attention_key)  # 1*1*len_seq
-                attention = self.softmax(energy)  # batch*1*len_seq
+                attention = self.softmax(energy)  # 1*1*len_seq
+                attention_map.append(attention)
 
                 ############ MASKING PART ################
                 attention_2d = torch.squeeze(attention, dim=1)  # 1*len_seq
@@ -195,8 +197,11 @@ class SpellerModel(nn.Module):
                 hx3 = hx_3
                 cx3 = cx_3
 
-            # loss_i = self.criterion(output_i,target[i])
-            # batch_loss.append(loss_i)
+            attention_map_array = torch.stack(attention_map,dim=0) #target_len*B*seq_len
+            attention_map_array = torch.squeeze(attention_map_array,2)
+            attention_map_array = attention_map_array.permute(1,0,2)
+            attention_map_array = attention_map_array[0]
+
             output_array = torch.stack(output_list,dim=0)
             output_array = output_array[:target.shape[0],:,:]
             output_array_2d = torch.squeeze(output_array,1)
@@ -208,6 +213,6 @@ class SpellerModel(nn.Module):
             batch_loss_sumseq = torch.sum(batch_loss,dim=0)
             # batch_loss_mean = torch.mean(batch_loss_sumseq)
 
-            result = batch_loss_sumseq
+            result = [batch_loss_sumseq,attention_map_array]
 
         return result
