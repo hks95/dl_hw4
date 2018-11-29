@@ -78,7 +78,7 @@ class SpellerModel(nn.Module):
 
         for i in range(max_allowed_seq_length):  # 1 word
             if i is 0:
-                y = torch.zeros(target.shape[1]).long().cuda()
+                y = torch.zeros(batch_size).long().cuda()
             else:
                 if flag is 'train':
                     ##### TEACHER FORCING #########3
@@ -97,6 +97,7 @@ class SpellerModel(nn.Module):
 
             ############ EMBEDDING PART ################
             embed = self.embedding(y) # batch * embed size
+            # prev_context = torch.ones(prev_context.shape).cuda()
             concat_input = torch.cat((embed,prev_context),1) # batch * (embed + context) size
 
             ############ LSTM PART ################
@@ -159,13 +160,13 @@ class SpellerModel(nn.Module):
             attention_map_array = torch.squeeze(attention_map_array,2)
             attention_map_array = attention_map_array.permute(1,0,2)
             attention_map_array = attention_map_array[0]
-
+            
             batch_loss = torch.stack(batch_loss,dim=0)
             # batch_loss = torch.mean(batch_loss,dim=1) #avg the batch loss
             batch_loss = batch_loss*target_mask.float()
             batch_loss_sumseq = torch.sum(batch_loss,dim=0)
             batch_loss_mean = torch.mean(batch_loss_sumseq)
-
+            
             result = [batch_loss_mean,attention_map_array]
 
         return result

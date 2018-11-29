@@ -14,7 +14,10 @@ import os
 import numpy as np
 from tensorboardX import SummaryWriter
 import listener
-import speller_attention1 as speller
+
+# import speller_attention1 as speller
+import speller
+
 import Levenshtein
 import csv
 import sys
@@ -31,7 +34,7 @@ writer = SummaryWriter('runs/%s' % run_id)
 #
 def final_test(args, listener_model,speller_model,test_loader,gpu,i):
 
-    read_dictionary = np.load('./data/label_dict.npy').item()
+    read_dictionary = np.load('./data/train_label_dict.npy').item()
     epoch_ls = 0
     listener_model.eval()
     speller_model.eval()
@@ -42,11 +45,13 @@ def final_test(args, listener_model,speller_model,test_loader,gpu,i):
                                 quotechar='|', quoting=csv.QUOTE_MINIMAL)
         writer.writerow(['Id'] + ['Predicted'])
         for batch_idx,(data,data_lengths) in enumerate(test_loader):
+            # pdb.set_trace()
             # if batch_idx == 50:
             #     break
             data = torch.from_numpy(data).float()
             data_lengths = torch.from_numpy(data_lengths)
-            data = data.view(-1,1,40) #bcs test collate returns 2d
+            # data = data.view(-1,1,40) #bcs test collate returns 2d
+            data = torch.unsqueeze(data, dim=1)
             if gpu is True:
                 data = data.cuda()
                 data_lengths = data_lengths.cuda()
@@ -59,7 +64,7 @@ def final_test(args, listener_model,speller_model,test_loader,gpu,i):
             for pred in pred_list:
                 word = read_dictionary[pred]
                 sentence.append(word)
-            sentence = " ".join(sentence)
+            sentence = "".join(sentence)
             writer.writerow([batch_idx,] + [sentence])
             print('{} {}'.format(batch_idx,sentence))
 #
@@ -219,13 +224,13 @@ def main():
 
     print('Starting data loading')
     # model.apply(init_randn)
-    training_set = ctc_Dataset('dev', batch_size=args.batch_size)
+    training_set = ctc_Dataset('train', batch_size=args.batch_size)
     params = {'batch_size': args.batch_size, 'num_workers': args.workers, 'shuffle': True,
               'collate_fn': data_loader.collate}  # if use_cuda else {}
     train_loader = data.DataLoader(training_set, **params)
 
-    validation_set = ctc_Dataset('dev', batch_size= 1)
-    params = {'batch_size': 1, 'num_workers': 1, 'shuffle': False,
+    validation_set = ctc_Dataset('dev', batch_size= args.batch_size)
+    params = {'batch_size': args.batch_size, 'num_workers': args.workers, 'shuffle': False,
               'collate_fn': data_loader.collate}
     validation_loader = data.DataLoader(validation_set, **params)
 
@@ -265,15 +270,15 @@ def main():
                }, is_best,model_name,dir)
     else:
         print('Testing started')
-        model_name = '/model_47.pth.tar'
-        filepath = os.getcwd() + '/models/1543312400'+model_name
+        model_name = 'model_20.pth.tar'
+        filepath = os.getcwd() + '/models/'+model_name
         state = torch.load(filepath)
         speller_model.load_state_dict(state['speller_state_dict'])
         listener_model.load_state_dict(state['listener_state_dict'])
         test_set = ctc_Dataset('test',batch_size=1)
         params = {'batch_size': 1,'num_workers': 1, 'shuffle': False,'collate_fn':data_loader.test_collate } # if use_cuda else {}
         test_loader = data.DataLoader(test_set, **params)
-        final_test(args,listener_model,speller_model,test_loader,gpu,1)
+        final_test(args,listener_model,speller_model,test_loader,gpu,2)
 
 if __name__ == '__main__':
         main()

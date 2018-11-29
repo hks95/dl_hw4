@@ -28,7 +28,7 @@ class ctc_Dataset(DataLoader):
             print('total vocab {}'.format(len(self.labels_dict)))
             self.vocab_size = len(self.labels_dict)
         
-        else:
+        elif flag is 'test':
             self.input, _ = loader.test
 
         self.num_utterances = self.input.shape[0]

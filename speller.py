@@ -33,7 +33,7 @@ class SpellerModel(nn.Module):
         self.lstm_cell3 = nn.LSTMCell(self.hidden_size, self.hidden_size)
 
         self.projection_query = nn.Linear(self.hidden_size,self.context_size)
-        self.projection_vocab = nn.Linear(self.hidden_size,self.vocab_size)
+        self.projection_vocab = nn.Linear(self.hidden_size+ self.context_size,self.vocab_size)
 
         self.softmax = nn.Softmax(dim=2)
         self.criterion = nn.CrossEntropyLoss(reduction='none')
@@ -78,7 +78,7 @@ class SpellerModel(nn.Module):
 
         for i in range(max_allowed_seq_length):  # 1 word
             if i is 0:
-                y = torch.zeros(target.shape[1]).long().cuda()
+                y = torch.zeros(batch_size).long().cuda()
             else:
                 if flag is 'train':
                     ##### TEACHER FORCING #########3
@@ -111,7 +111,7 @@ class SpellerModel(nn.Module):
             energy = torch.bmm(context_input,attention_key) #batch*1*len_seq
             attention = self.softmax(energy) #batch*1*len_seq
             attention_map.append(attention)
-
+            
             ############ MASKING PART ################
             attention_2d = torch.squeeze(attention,dim=1) #batch*len_seq
             attention_masked = torch.mul(attention_2d,attention_mask) #batch*len_seq
@@ -121,8 +121,12 @@ class SpellerModel(nn.Module):
             ############ CONTEXT PART ################
             context = torch.bmm(attention_norm_3d, attention_val) #batch*1*key_li
             context_2d = torch.squeeze(context,dim=1) #batch*key_li
+            # if i is 10:
+            #     print(torch.sum(attention_norm,1))
+            
 
-            output_i = self.projection_vocab(hx_3) #batch*vocab size
+            concat_output = torch.cat((hx_3,prev_context),1)
+            output_i = self.projection_vocab(concat_output) #batch*vocab size
             output_list.append(output_i)
             output_softmax = torch.softmax(output_i,dim=1)            
             pred = torch.argmax(output_softmax,dim=1)

@@ -24,12 +24,6 @@ class listenerModel(nn.Module):
         self.hidden_size = hidden_size
         self.output_size = output_size
 
-        self.embed_drop = embed_drop
-        self.lock_dropi = lock_dropi
-        self.lock_droph = lock_droph
-        self.lock_dropo = lock_dropo
-
-
         self.rnns = nn.ModuleList(
             [nn.LSTM(input_size=input_size, hidden_size=hidden_size, num_layers=1, batch_first=False, bidirectional=True),
              nn.LSTM(input_size=hidden_size*4, hidden_size=hidden_size, num_layers=1, batch_first=False, bidirectional=True),
@@ -58,6 +52,7 @@ class listenerModel(nn.Module):
         padded_input = seq_list
         hidden = None
         for i, rnn_i in enumerate(self.rnns):
+            # pdb.set_trace()
             packed_input = rnn.pack_padded_sequence(padded_input, input_length, batch_first=False)  # packed version
             output_packed, hidden = rnn_i(packed_input)  # N*L*H
             output_padded = rnn.pad_packed_sequence(output_packed, batch_first=False)
@@ -74,25 +69,12 @@ class listenerModel(nn.Module):
             n3 = output_padded_reshaped.shape[2]
 
             output_padded_reshaped_new = output_padded_reshaped[:,0:n2_even,:]
-            output_padded_reshaped_new2 = output_padded_reshaped_new.reshape(batch_size,int(n2_even/2),int(n3*2))
+            output_padded_reshaped_new2 = output_padded_reshaped_new.contiguous().view(batch_size,int(n2_even/2),int(n3*2))
             #padded_input = output_padded_reshaped_new2.reshape(-1,batch_size,int(n3*2))
             input_length = output_padded_length/2
             padded_input = output_padded_reshaped_new2.permute(1,0,2)
-            # if i != self.nlayers - 1:
-            #     if self.lock_droph is not 0:
-            #         output_packed = self.lock_dropout(output_packed, self.lock_droph)
 
-                    # output padded becomes frames*batchsize*40
-
-        # output_padded, _ = rnn.pad_packed_sequence(output_packed, batch_first=False)  # unpacked output (padded)
-
-        # if self.lock_dropo is not 0:
-        #     output_padded = self.lock_dropout(output_padded, self.lock_dropo)
-        ##############################################
-        
-        #listener_features = padded_input.reshape(batch_size,padded_input.shape[0],padded_input.shape[2]) #speller prefers batch first
         listener_features = padded_input.permute(1,0,2)
-        # see if i can make this parallel and faster
         attention_key = self.projection_key(listener_features)
         attention_val = self.projection_val(listener_features)
 
@@ -102,7 +84,7 @@ class listenerModel(nn.Module):
             attention_mask[i][:input_length[i]] = 1
         attention_mask = torch.from_numpy(attention_mask).float().cuda()
         attention_mask.requires_grad = False
-
+        # pdb.set_trace()
         return attention_key, attention_val, attention_mask
 
     def init_weights(self):
