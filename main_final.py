@@ -16,7 +16,6 @@ from tensorboardX import SummaryWriter
 import listener
 import speller
 import Levenshtein
-
 import csv
 import sys
 from torch.utils.data import DataLoader, TensorDataset
@@ -30,41 +29,47 @@ print("Saving models, predictions, and generated words to ./experiments/%s" % ru
 writer = SummaryWriter('runs/%s' % run_id)
 
 #
-# def final_test(args, model,test_loader,gpu,i):
-#
-#     label_map = [' '] + phonemes.PHONEME_MAP
-#     decoder = CTCBeamDecoder(labels=label_map, blank_id=0, beam_width=100)
-#     epoch_ls = 0
-#     model.eval()
-#     prediction = []
-#     with open('submission_basemodel_%d.csv' %(i), 'w', newline='') as csvfile:
-#         fieldnames = ['Id', 'Predicted']
-#         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-#         writer.writeheader()
-#         for batch_idx,(data,data_lengths) in enumerate(test_loader):
-#
-#             data = torch.from_numpy(data).float()
-#             data_lengths = torch.from_numpy(data_lengths).int()
-#             data = data.view(-1,1,40) #bcs test collate returns 2d
-#             if gpu is True:
-#                 data = data.cuda()
-#                 data_lengths = data_lengths.cuda()
-#
-#             logits = model(data,data_lengths)
-#             logits = torch.transpose(logits, 0, 1)
-#             probs = F.softmax(logits, dim=2).data.cpu()
-#
-#             output, scores, timesteps, out_seq_len = decoder.decode(probs=probs, seq_lens=data_lengths)
-#             pred = "".join(label_map[o] for o in output[0, 0, :out_seq_len[0, 0]])
-#             writer.writerow({'Id': batch_idx, 'Predicted': pred})
+def final_test(args, listener_model,speller_model,test_loader,gpu,i):
+
+    read_dictionary = np.load('./data/label_dict.npy').item()
+    epoch_ls = 0
+    listener_model.eval()
+    speller_model.eval()
+    prediction = []
+    flag = 'test'
+    with open('submission_basemodel_%d.csv' %(i), 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile, delimiter=',',
+                                quotechar='|', quoting=csv.QUOTE_MINIMAL)
+        writer.writerow(['Id'] + ['Predicted'])
+        for batch_idx,(data,data_lengths) in enumerate(test_loader):
+            # if batch_idx == 50:
+            #     break
+            data = torch.from_numpy(data).float()
+            data_lengths = torch.from_numpy(data_lengths)
+            data = data.view(-1,1,40) #bcs test collate returns 2d
+            if gpu is True:
+                data = data.cuda()
+                data_lengths = data_lengths.cuda()
+            attention_key, attention_val, attention_mask = listener_model(data, data_lengths)  # comes out at float
+            pred_list = speller_model(None,None, attention_key, attention_val, attention_mask, flag,None)  # batch*lenseq*vocab
+
+            
+            sentence = []
+            pred_list = torch.cat(pred_list).cpu().numpy()
+            for pred in pred_list:
+                word = read_dictionary[pred]
+                sentence.append(word)
+            sentence = " ".join(sentence)
+            writer.writerow([batch_idx,] + [sentence])
+            print('{} {}'.format(batch_idx,sentence))
 #
 def eval(args, listener_model, speller_model, dev_loader, epoch,gpu):
-    batch_loss = 0
-    epoch_loss = 0
     listener_model.eval()
     speller_model.eval()
     flag = 'eval'
-    prob = torch.randint(0, len(dev_loader), (1,))
+    prob = np.random.randint(0, len(dev_loader), (1,))[0]
+    epoch_loss = 0
+
     for batch_idx, (data, target,data_lengths,target_lengths,target_mask,target_dict) in enumerate(dev_loader):
 
         data = torch.from_numpy(data).float()  # THIS HAS TO BE FLOAT BASED ON THE NETWORK REQUIREMENT
@@ -84,17 +89,16 @@ def eval(args, listener_model, speller_model, dev_loader, epoch,gpu):
         batch_loss,attention_map = speller_model(target, target_mask, attention_key, attention_val, attention_mask, flag,target_dict)  # batch*lenseq*vocab
         
         ####################### SAVE ATTENTION MASK FOR RANDOM SAMPLE ################
-        if batch_idx is prob:
+        if batch_idx == prob:
             attention_heatmap = attention_map.cpu().detach().numpy()
             # Create a new figure, plot into it, then close it so it never gets displayed
             fig = plt.figure()
             plt.imshow(attention_heatmap, cmap='hot', interpolation='nearest')
             dir = './models/%s' % run_id
-            plt.savefig(dir + '/mask %d.png'%(epoch))
+            plt.savefig(dir + '/attention_map %d.png'%(epoch))
             plt.close(fig)
 
         ####################### LEVENSTEIN DIST #####################################
-        # pdb.set_trace()
         # for i in range(target_lengths):
         #     word_loss = Levenshtein.distance(target[i], pred[i])
         #     perplexity = torch.exp(word_loss)
@@ -121,10 +125,10 @@ def train(args, listener_model, speller_model, train_loader,optimizer_speller,op
     speller_model.train()
     flag = 'train'
     epoch_loss = 0
-    count = 0
-    criterion = nn.CrossEntropyLoss(ignore_index=-1)
-    if gpu is True:
-        criterion = criterion.cuda()
+    # Calcualting loss inside speller
+    # criterion = nn.CrossEntropyLoss()
+    # if gpu is True:
+    #     criterion = criterion.cuda()
 
     for batch_idx, (data, target,data_lengths,target_lengths,target_mask,target_dict) in enumerate(train_loader):
         data = torch.from_numpy(data).float() # THIS HAS TO BE FLOAT BASED ON THE NETWORK REQUIREMENT
@@ -145,13 +149,6 @@ def train(args, listener_model, speller_model, train_loader,optimizer_speller,op
         attention_key, attention_val, attention_mask = listener_model(data,data_lengths) #comes out at float
         batch_loss = speller_model(target, target_mask, attention_key, attention_val, attention_mask, flag,target_dict) #batch*lenseq*vocab
 
-        #target = torch.t(target) #batch size first
-        #target_mask = torch.t(target_mask)
-
-        # ignore index part
-        #target = target*target_mask
-
-        #batch_loss = criterion(pred, target.flatten())
         batch_loss.backward()
         # torch.nn.utils.clip_grad_norm_(model.parameters(), 0.20)
         optimizer_speller.step()
@@ -163,10 +160,11 @@ def train(args, listener_model, speller_model, train_loader,optimizer_speller,op
             niter = epoch*len(train_loader)+batch_idx
             writer.add_scalar('Train/ Batch Loss', batch_loss.item(), niter)
 
+    epoch_loss = epoch_loss/len(train_loader)       
     print('---------------------------------')
-    print('Train Epoch: {} \tLoss: {:.6f}'.format(epoch,epoch_loss/len(train_loader)))
+    print('Train Epoch: {} \tLoss: {:.6f}'.format(epoch,epoch_loss))
     print('---------------------------------')
-    writer.add_scalar('Train/Epoch Loss', epoch_loss/len(train_loader), epoch)
+    writer.add_scalar('Train/Epoch Loss', epoch_loss, epoch)
 
 def save_checkpoint(state,is_best,model_name,dir):
     
@@ -221,37 +219,37 @@ def main():
 
     print('Starting data loading')
     # model.apply(init_randn)
-    training_set = ctc_Dataset('train', batch_size=args.batch_size)
+    training_set = ctc_Dataset('dev', batch_size=args.batch_size)
     params = {'batch_size': args.batch_size, 'num_workers': args.workers, 'shuffle': True,
               'collate_fn': data_loader.collate}  # if use_cuda else {}
     train_loader = data.DataLoader(training_set, **params)
 
-    validation_set = ctc_Dataset('dev', batch_size=args.test_batch_size)
-    params = {'batch_size': args.test_batch_size, 'num_workers': args.workers, 'shuffle': False,
+    validation_set = ctc_Dataset('dev', batch_size= 1)
+    params = {'batch_size': 1, 'num_workers': 1, 'shuffle': False,
               'collate_fn': data_loader.collate}
     validation_loader = data.DataLoader(validation_set, **params)
 
-    print('Done data loading, starting training')
-
     listener_model = listener.listenerModel(40,256,128,embed_drop=0,lock_dropi=0.0,lock_droph=0,lock_dropo=0.0)
-    speller_model = speller.SpellerModel(training_set.vocab_size,256,512,128)
+    speller_model = speller.SpellerModel(training_set.vocab_size,256,512,128,args.batch_size)
     if gpu is True:
         listener_model = listener_model.cuda()
         speller_model = speller_model.cuda()
 
     if args.eval is False:
+        print('Done data loading, starting training')
         optimizer_speller = optim.Adam(speller_model.parameters(),lr=args.lr)
         optimizer_listener = optim.Adam(listener_model.parameters(),lr=args.lr)
 
-        # dir = './models/%s' % run_id
+        dir = './models/%s' % run_id
         for epoch in range(args.epochs):
             train(args, listener_model,speller_model, train_loader,optimizer_speller,optimizer_listener, epoch,gpu)
-            #model_name = 'model_best.pth.tar'
-            #filepath = os.getcwd()+'/models/1541143617/best/' + model_name
-            #filepath = os.getcwd()+'/models/1541143617/best/' + model_name
-            #state = torch.load(filepath)
-            #model.load_state_dict(state['state_dict'])
-            #print(model)
+
+            # model_name = '/model_%d.pth.tar' %(45+epoch)
+            # filepath = os.getcwd() + '/models/1543312400'+model_name
+            # state = torch.load(filepath)
+            # speller_model.load_state_dict(state['speller_state_dict'])
+            # listener_model.load_state_dict(state['listener_state_dict'])
+
             eval_loss = eval(args, listener_model,speller_model, validation_loader,epoch,gpu)
             ## remember best acc and save checkpoint
             is_best = False
@@ -265,17 +263,17 @@ def main():
                'listener_state_dict': listener_model.state_dict(),
                'best_acc': best_eval,
                }, is_best,model_name,dir)
-    # else:
-    #     print('Testing started')
-    #     model_name = '/model_best.pth.tar'
-    #     filepath = os.getcwd() + '/models/1541263511/best/'+model_name
-    #     state = torch.load(filepath)
-    #     model.load_state_dict(state['state_dict'])
-    #     print(model)
-    #     test_set = ctc_Dataset('test',batch_size=1)
-    #     params = {'batch_size': 1,'num_workers': args.workers, 'shuffle': False,'collate_fn':data_loader.test_collate } # if use_cuda else {}
-    #     test_loader = data.DataLoader(test_set, **params)
-    #     final_test(args,model,test_loader,gpu,1)
+    else:
+        print('Testing started')
+        model_name = '/model_47.pth.tar'
+        filepath = os.getcwd() + '/models/1543312400'+model_name
+        state = torch.load(filepath)
+        speller_model.load_state_dict(state['speller_state_dict'])
+        listener_model.load_state_dict(state['listener_state_dict'])
+        test_set = ctc_Dataset('test',batch_size=1)
+        params = {'batch_size': 1,'num_workers': 1, 'shuffle': False,'collate_fn':data_loader.test_collate } # if use_cuda else {}
+        test_loader = data.DataLoader(test_set, **params)
+        final_test(args,listener_model,speller_model,test_loader,gpu,1)
 
 if __name__ == '__main__':
         main()

@@ -1,5 +1,6 @@
 import numpy as np
 import os
+import pdb
 
 class WSJ():
 	""" Load the WSJ speech dataset
@@ -41,5 +42,6 @@ class WSJ():
 def load_raw(path, name):
 	return (
 		np.load(os.path.join(path, '{}.npy'.format(name)), encoding='bytes'), 
-		np.load(os.path.join(path, '{}_transcripts.npy'.format(name)), encoding='bytes')
+		np.load(os.path.join(path, '{}_labels.npy'.format(name)), encoding='bytes'),
+		np.load(os.path.join(path, '{}_label_dict.npy'.format(name)))
 	)

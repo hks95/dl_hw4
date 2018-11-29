@@ -17,19 +17,22 @@ class ctc_Dataset(DataLoader):
         self.batch_size = batch_size
 
         if flag is 'train':
-            self.input, self.labels = loader.train
-            self.labels_dict,self.labels = transcript_gen.get_transcript(self.labels)
+            self.input, self.labels,self.labels_dict = loader.train
+            self.labels_dict = self.labels_dict.tolist()
             print('total vocab {}'.format(len(self.labels_dict)))
+            self.vocab_size = len(self.labels_dict)
+
         elif flag is 'dev':
-            self.input, self.labels = loader.dev
-            self.labels_dict,self.labels = transcript_gen.get_transcript(self.labels)
+            self.input, self.labels,self.labels_dict = loader.dev
+            self.labels_dict = self.labels_dict.tolist()
             print('total vocab {}'.format(len(self.labels_dict)))
+            self.vocab_size = len(self.labels_dict)
+        
         else:
             self.input, _ = loader.test
 
         self.num_utterances = self.input.shape[0]
-
-        self.vocab_size = len(self.labels_dict)
+        
         print('total_samples {}'.format(self.num_utterances))
 
 
@@ -37,11 +40,12 @@ class ctc_Dataset(DataLoader):
         data = self.input[item]
         if self.flag is 'test':
             labels = 0
+            return data,labels
         else:
             labels = self.labels[item]
             labels_dict = self.labels_dict
-
-        return data,labels,labels_dict
+            return data,labels,labels_dict
+        
 
     def __len__(self):
         return self.num_utterances
@@ -63,8 +67,8 @@ def collate(seq_list):
     lens = [len(seq[1]) for seq in seq_list] #seq[0] in input
     seq_order_labels = sorted(range(len(lens)), key=lens.__getitem__, reverse=True) #maintains list of indices in sorted order
     longest_seq_length = len(seq_list[seq_order_labels[0]][1])
-    padded_targets = np.full((longest_seq_length+1,batch_size),1) #for eos
-    target_mask = np.full((longest_seq_length+1,batch_size),0) #for ignore index
+    padded_targets = np.full((longest_seq_length,batch_size),1)
+    target_mask = np.full((longest_seq_length,batch_size),0)
 
     data = [seq_list[i][0] for i in seq_order]
     for i,x in enumerate(data):
@@ -72,22 +76,12 @@ def collate(seq_list):
 
     labels = [seq_list[i][1] for i in seq_order] #rearrange labels based on input decreasing order
     for i,x in enumerate(labels):
-        # padded_targets[0,i] = 0
-        padded_targets[0:x.shape[0],i] = x
-        padded_targets[x.shape[0],i] = 0
-        # target_mask[i,0] = 1
-        target_mask[0:x.shape[0],i] = 1
-        target_mask[x.shape[0],i] = 1
+        padded_targets[:x.shape[0],i] = x
+        target_mask[:x.shape[0],i] = 1
 
-    # targets = []
-    input_length = []
-    targets_length = []
-    for i in seq_order:
-        # targets.append(seq_list[i][1]) #warp ctc requires 1 to n as labels
-        input_length.append(len(seq_list[i][0]))
-        targets_length.append(len(seq_list[i][1])+1)
+    input_length = [len(seq_list[i][0]) for i in seq_order]
+    targets_length = [len(seq_list[i][1]) for i in seq_order]
 
-    # targets = np.array(targets)
     input_length = np.array(input_length)
     targets_length = np.array(targets_length)
     labels_dict = seq_list[0][2]
@@ -97,7 +91,7 @@ def collate(seq_list):
 
 def test_collate(seq_list):
 
-    batch_size = len(seq_list)
+    # batch_size = len(seq_list)
     input_length = []
     input_length.append(len(seq_list[0][0]))
     input_length = np.array(input_length)

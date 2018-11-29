@@ -23,7 +23,6 @@ class listenerModel(nn.Module):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.output_size = output_size
-        self.nlayers = 3
 
         self.embed_drop = embed_drop
         self.lock_dropi = lock_dropi
@@ -48,7 +47,6 @@ class listenerModel(nn.Module):
 
         batch_size = seq_list.shape[1]
         orig_input_length = input_length
-        # pdb.set_trace()
 
         # if self.lock_dropi is not 0:
         #     seq_list = self.lock_dropout(seq_list, dropout=self.lock_dropi)
@@ -91,7 +89,7 @@ class listenerModel(nn.Module):
         # if self.lock_dropo is not 0:
         #     output_padded = self.lock_dropout(output_padded, self.lock_dropo)
         ##############################################
-
+        
         #listener_features = padded_input.reshape(batch_size,padded_input.shape[0],padded_input.shape[2]) #speller prefers batch first
         listener_features = padded_input.permute(1,0,2)
         # see if i can make this parallel and faster
@@ -119,22 +117,3 @@ class listenerModel(nn.Module):
                  weight.new(1, batch_size, self.hidden_size if l != self.nlayers - 1 else (
                      self.embed_size if self.tie_weights else self.hidden_size)).zero_())
                 for l in range(self.nlayers)]
-
-
-    def embed_dropout(self, embed, words, dropout):
-        mask = embed.weight.data.new().resize_((embed.weight.size(0), 1)).bernoulli_(1 - dropout).expand_as(
-            embed.weight) / (1 - dropout)
-        masked_embed_weight = mask * embed.weight
-        X = nn.functional.embedding(words, masked_embed_weight,
-                                    -1, embed.max_norm, embed.norm_type,
-                                    embed.scale_grad_by_freq, embed.sparse
-                                    )
-        return X
-
-    def lock_dropout(self, x, dropout):
-        if not self.training or not dropout:
-            return x
-        m = x.data.new(1, x.size(1), x.size(2)).bernoulli_(1 - dropout)  # try swapping to 1 and 2
-        mask = Variable(m, requires_grad=False) / (1 - dropout)
-        mask = mask.expand_as(x)
-        return mask * x
