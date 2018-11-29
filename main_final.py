@@ -230,7 +230,7 @@ def main():
     validation_loader = data.DataLoader(validation_set, **params)
 
     listener_model = listener.listenerModel(40,256,128,embed_drop=0,lock_dropi=0.0,lock_droph=0,lock_dropo=0.0)
-    speller_model = speller.SpellerModel(training_set.vocab_size,256,512,128,args.batch_size)
+    speller_model = speller.SpellerModel(training_set.vocab_size,256,512,128)
     if gpu is True:
         listener_model = listener_model.cuda()
         speller_model = speller_model.cuda()
@@ -251,7 +251,7 @@ def main():
             # listener_model.load_state_dict(state['listener_state_dict'])
 
             eval_loss = eval(args, listener_model,speller_model, validation_loader,epoch,gpu)
-            ## remember best acc and save checkpoint
+            # ## remember best acc and save checkpoint
             is_best = False
             if best_eval is None or best_eval>eval_loss:
                is_best = True

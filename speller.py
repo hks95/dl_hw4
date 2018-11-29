@@ -18,14 +18,14 @@ from torch.distributions.gumbel import Gumbel
 
 class SpellerModel(nn.Module):
 
-    def __init__(self,vocab_size,embed_size,hidden_size,listener_key_size,batch_size):
+    def __init__(self,vocab_size,embed_size,hidden_size,listener_key_size):
         super(SpellerModel, self).__init__()
         self.vocab_size = vocab_size #attention projection size
         self.embed_size = embed_size
         self.hidden_size = hidden_size
         self.nlayers = 3
         self.context_size = listener_key_size
-        self.batch_size = batch_size
+        # self.batch_size = batch_size
 
         self.embedding = nn.Embedding(vocab_size, self.embed_size)  # Embedding layer
         self.lstm_cell1 = nn.LSTMCell(self.embed_size + self.context_size, self.hidden_size)
@@ -52,14 +52,16 @@ class SpellerModel(nn.Module):
     def forward(self, target, target_mask, attention_key, attention_val, attention_mask, flag, target_dict):
 
         # target is seq * batch size
-        hx1 = self.hx1.expand(self.batch_size,-1)
-        cx1 = self.cx1.expand(self.batch_size,-1)
+        batch_size = attention_key.shape[0]
+
+        hx1 = self.hx1.expand(batch_size,-1)
+        cx1 = self.cx1.expand(batch_size,-1)
         
-        hx2 = self.hx2.expand(self.batch_size,-1)
-        cx2 = self.cx2.expand(self.batch_size,-1)
+        hx2 = self.hx2.expand(batch_size,-1)
+        cx2 = self.cx2.expand(batch_size,-1)
         
-        hx3 = self.hx3.expand(self.batch_size,-1)
-        cx3 = self.cx3.expand(self.batch_size,-1)
+        hx3 = self.hx3.expand(batch_size,-1)
+        cx3 = self.cx3.expand(batch_size,-1)
 
         prev_context = self.projection_query(hx1)
 
@@ -145,11 +147,12 @@ class SpellerModel(nn.Module):
 
         else:
             ############ ALWAYS BATCH SIZE 1 ########################
-            max_allowed_seq_length = 200
+            max_allowed_seq_length = 300
             prev_output = None
             attention_map = []
             output_list = []
             pred_list = []
+            batch_loss = []
 
             for i in range(max_allowed_seq_length):  # 1 word
                 if i is 0:
@@ -175,6 +178,7 @@ class SpellerModel(nn.Module):
                 context_input = torch.unsqueeze(context_input,dim=1) #batch * 1 * hidden_sp
                 energy = torch.bmm(context_input,attention_key) #batch*1*len_seq
                 attention = self.softmax(energy) #batch*1*len_seq
+                attention_map.append(attention)
 
                 ############ MASKING PART ################
                 attention_2d = torch.squeeze(attention, dim=1)  # 1*len_seq
@@ -222,10 +226,12 @@ class SpellerModel(nn.Module):
                 output_array = torch.stack(output_list,dim=0)
                 output_array = output_array[:target.shape[0],:,:]
                 output_array_2d = torch.squeeze(output_array,1)
+                # if target.flatten().shape[0] is 201:
+                #     pdb.set_trace()
+                # print('output shape {} target shape {}'.format(output_array_2d.shape,target.flatten().shape))
                 batch_loss = self.criterion(output_array_2d,target.flatten())
 
-                batch_loss = torch.stack(batch_loss,dim=0)
-                batch_loss = torch.mean(batch_loss,dim=1) #avg the batch loss
+                # batch_loss = torch.mean(batch_loss,dim=1) #avg the batch loss
                 # batch_loss = batch_loss*target_mask.float() #batch size always 1
                 batch_loss_sumseq = torch.sum(batch_loss,dim=0)
                 batch_loss_mean = torch.mean(batch_loss_sumseq)
