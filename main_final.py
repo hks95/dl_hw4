@@ -14,7 +14,7 @@ import os
 import numpy as np
 from tensorboardX import SummaryWriter
 import listener
-import speller
+import speller_attention1 as speller
 import Levenshtein
 import csv
 import sys
@@ -147,7 +147,7 @@ def train(args, listener_model, speller_model, train_loader,optimizer_speller,op
         optimizer_speller.zero_grad()
         optimizer_listener.zero_grad()
         attention_key, attention_val, attention_mask = listener_model(data,data_lengths) #comes out at float
-        batch_loss = speller_model(target, target_mask, attention_key, attention_val, attention_mask, flag,target_dict) #batch*lenseq*vocab
+        batch_loss,attention_map = speller_model(target, target_mask, attention_key, attention_val, attention_mask, flag,target_dict) #batch*lenseq*vocab
 
         batch_loss.backward()
         # torch.nn.utils.clip_grad_norm_(model.parameters(), 0.20)
@@ -244,14 +244,14 @@ def main():
         for epoch in range(args.epochs):
             train(args, listener_model,speller_model, train_loader,optimizer_speller,optimizer_listener, epoch,gpu)
 
-            # model_name = '/model_%d.pth.tar' %(45+epoch)
-            # filepath = os.getcwd() + '/models/1543312400'+model_name
+            # model_name = '/model_%d.pth.tar' %(2)
+            # filepath = os.getcwd() + '/models/1543452078'+model_name
             # state = torch.load(filepath)
             # speller_model.load_state_dict(state['speller_state_dict'])
             # listener_model.load_state_dict(state['listener_state_dict'])
 
             eval_loss = eval(args, listener_model,speller_model, validation_loader,epoch,gpu)
-            # ## remember best acc and save checkpoint
+            # # ## remember best acc and save checkpoint
             is_best = False
             if best_eval is None or best_eval>eval_loss:
                is_best = True
