@@ -191,7 +191,7 @@ def main():
 
     parser.add_argument('--lr', type=float, default=1e-3, metavar='LR',
                                             help='learning rate (default: 0.01)')
-    parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
+    parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
                                             help='SGD momentum (default: 0.5)')
     parser.add_argument('--use_gpu', type=bool, default=False,
                                             help='decides CUDA training')
@@ -242,19 +242,17 @@ def main():
 
     if args.eval is False:
         print('Done data loading, starting training')
-        optimizer_speller = optim.Adam(speller_model.parameters(),lr=args.lr)
-        optimizer_listener = optim.Adam(listener_model.parameters(),lr=args.lr)
+        optimizer_speller = optim.SGD(speller_model.parameters(),lr=args.lr, momentum = args.momentum)
+        optimizer_listener = optim.SGD(listener_model.parameters(),lr=args.lr, momentum = args.momentum)
 
         dir = './models/%s' % run_id
         for epoch in range(args.epochs):
+            model_name = 'model_best.pth.tar'
+            filepath = os.getcwd() + '/models/1543527265/'+model_name
+            state = torch.load(filepath)
+            speller_model.load_state_dict(state['speller_state_dict'])
+            listener_model.load_state_dict(state['listener_state_dict'])
             train(args, listener_model,speller_model, train_loader,optimizer_speller,optimizer_listener, epoch,gpu)
-
-            # model_name = '/model_%d.pth.tar' %(2)
-            # filepath = os.getcwd() + '/models/1543452078'+model_name
-            # state = torch.load(filepath)
-            # speller_model.load_state_dict(state['speller_state_dict'])
-            # listener_model.load_state_dict(state['listener_state_dict'])
-
             eval_loss = eval(args, listener_model,speller_model, validation_loader,epoch,gpu)
             # # ## remember best acc and save checkpoint
             is_best = False
@@ -270,15 +268,15 @@ def main():
                }, is_best,model_name,dir)
     else:
         print('Testing started')
-        model_name = 'model_20.pth.tar'
-        filepath = os.getcwd() + '/models/'+model_name
+        model_name = 'model_best.pth.tar'
+        filepath = os.getcwd() + '/models/1543542219/best/'+model_name
         state = torch.load(filepath)
         speller_model.load_state_dict(state['speller_state_dict'])
         listener_model.load_state_dict(state['listener_state_dict'])
         test_set = ctc_Dataset('test',batch_size=1)
         params = {'batch_size': 1,'num_workers': 1, 'shuffle': False,'collate_fn':data_loader.test_collate } # if use_cuda else {}
         test_loader = data.DataLoader(test_set, **params)
-        final_test(args,listener_model,speller_model,test_loader,gpu,2)
+        final_test(args,listener_model,speller_model,test_loader,gpu,3)
 
 if __name__ == '__main__':
         main()

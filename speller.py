@@ -83,7 +83,7 @@ class SpellerModel(nn.Module):
                 if flag is 'train':
                     ##### TEACHER FORCING #########3
                     prob = torch.randint(0, 100, (1,))
-                    if prob>=90:
+                    if prob>=80:
                         y = prev_output
                     else:
                         y = target[i-1] # first input is sos
